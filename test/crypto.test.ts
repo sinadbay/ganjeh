@@ -4,16 +4,17 @@
  * Scenario map (see brief):
  *   t2-s1  round-trip fidelity
  *   t2-s2  wrong passphrase -> WrongPassphraseError, exit code, non-committal message
- *   t2-s3  envelope uniqueness across seals of identical input
- *   t2-s4  corrupt / malformed envelope -> VaultCorruptError, exit code
- *   t2-s5  kdf block shape (algorithm, n, r, p, 16-byte salt)
- *   t2-s6  out-of-range KDF parameters rejected before any derivation runs
+ *   t2-s3  flipped ciphertext byte -> WrongPassphraseError, no plaintext returned
+ *   t2-s4  envelope uniqueness across seals of identical input
+ *   t2-s5  malformed / wrong-shaped envelopes -> VaultCorruptError, exit code
+ *   t2-s6  kdf block shape (name, n, r, p) and 16-byte saltB64
  *   t2-a1  the sealed work factor cannot be weakened by a caller
+ *   t2-a2  an oversized kdf.n cannot force a multi-gigabyte allocation
+ *   t2-a3  a failed open does not leak the passphrase or the plaintext
  */
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDecipheriv, scrypt } from 'node:crypto';
 
 import {
   cipher,
@@ -23,12 +24,16 @@ import {
   WrongPassphraseError,
   VaultCorruptError,
   VaultError,
-  DEFAULT_KDF,
+  KDF_PARAMS,
+  KEY_LEN,
+  SALT_LEN,
+  NONCE_LEN,
   ENVELOPE_VERSION,
-  type Envelope,
+  type EncryptedEnvelope,
 } from '../src/crypto.ts';
 
 const PASSPHRASE = 'correct horse battery staple';
+const AUTH_TAG_LEN = 16;
 
 /**
  * `seal` takes bytes, not text. Most of these tests only need *some* payload,
@@ -40,15 +45,16 @@ function bytes(text: string): Buffer {
 }
 
 /**
- * A sealed `Envelope` is readonly, which is right for production callers but
- * exactly what these tests need to defeat: forging a damaged vault means
- * writing to those fields. Cloning through JSON hands back a deeply mutable
- * copy, so tampering stays local to one test and needs no casts at each site.
+ * A sealed `EncryptedEnvelope` is readonly, which is right for production
+ * callers but exactly what these tests need to defeat: forging a damaged
+ * vault means writing to those fields. Cloning through JSON hands back a
+ * deeply mutable copy, so tampering stays local to one test and needs no
+ * casts at each site.
  */
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
-type MutableEnvelope = Mutable<Envelope>;
+type MutableEnvelope = Mutable<EncryptedEnvelope>;
 
-function clone(envelope: Envelope): MutableEnvelope {
+function clone(envelope: EncryptedEnvelope): MutableEnvelope {
   return JSON.parse(JSON.stringify(envelope)) as MutableEnvelope;
 }
 
@@ -91,15 +97,33 @@ describe('t2-s1 round-trip fidelity', () => {
   test('round-trips at the production KDF cost', async () => {
     const plaintext = bytes(JSON.stringify({ entries: [{ name: 'github', secret: 's3cret' }] }));
     const envelope = await seal(plaintext, PASSPHRASE);
-    assert.equal(envelope.kdf.n, DEFAULT_KDF.n);
+    assert.equal(envelope.kdf.n, KDF_PARAMS.n);
     assert.ok((await open(envelope, PASSPHRASE)).equals(plaintext));
   });
 
-  test('round-trips an empty payload', async () => {
+  // DoD: 0 bytes, 1 byte and 1 MiB must all round-trip byte-identically.
+  test('round-trips an empty payload (0 bytes)', async () => {
     const envelope = await seal(Buffer.alloc(0), PASSPHRASE);
     const opened = await open(envelope, PASSPHRASE);
     assert.ok(Buffer.isBuffer(opened));
     assert.equal(opened.length, 0);
+    assert.ok(opened.equals(Buffer.alloc(0)));
+  });
+
+  test('round-trips a single byte (1 byte)', async () => {
+    const plaintext = Buffer.from([0x42]);
+    const envelope = await seal(plaintext, PASSPHRASE);
+    const opened = await open(envelope, PASSPHRASE);
+    assert.equal(opened.length, 1);
+    assert.ok(opened.equals(plaintext));
+  });
+
+  test('round-trips a full mebibyte (1 MiB)', async () => {
+    const plaintext = Buffer.from(Array.from({ length: 1024 * 1024 }, (_, i) => i % 256));
+    const envelope = await seal(plaintext, PASSPHRASE);
+    const opened = await open(envelope, PASSPHRASE);
+    assert.equal(opened.length, 1024 * 1024);
+    assert.ok(opened.equals(plaintext));
   });
 
   test('round-trips multi-byte UTF-8 without mangling it', async () => {
@@ -127,7 +151,7 @@ describe('t2-s1 round-trip fidelity', () => {
   test('survives a JSON serialisation cycle, as the vault file will', async () => {
     const plaintext = bytes('persisted through disk');
     const envelope = await seal(plaintext, PASSPHRASE);
-    const reloaded = JSON.parse(JSON.stringify(envelope)) as Envelope;
+    const reloaded = JSON.parse(JSON.stringify(envelope)) as EncryptedEnvelope;
     assert.ok((await open(reloaded, PASSPHRASE)).equals(plaintext));
   });
 
@@ -173,7 +197,7 @@ describe('t2-s2 wrong passphrase', () => {
     assert.equal(error.code, 'WRONG_PASSPHRASE');
   });
 
-  test('the message reveals neither "right" nor "wrong"', async () => {
+  test('the message contains neither "right" nor "wrong"', async () => {
     const envelope = await seal(bytes('secret'), PASSPHRASE);
     const error = await open(envelope, 'nope').then(
       () => assert.fail('open should have rejected'),
@@ -192,18 +216,10 @@ describe('t2-s2 wrong passphrase', () => {
     await assert.rejects(() => open(envelope, ''), WrongPassphraseError);
   });
 
-  test('a flipped ciphertext bit is caught by the auth tag, not returned as plaintext', async () => {
-    const envelope = await seal(bytes('secret payload'), PASSPHRASE);
-    const tampered = clone(envelope);
-    const raw = Buffer.from(tampered.cipher.ciphertext, 'base64');
-    assert.ok(raw.length > 0, 'precondition: there is a byte to flip');
-    raw.writeUInt8(raw.readUInt8(0) ^ 0x01, 0);
-    tampered.cipher.ciphertext = raw.toString('base64');
-
-    await assert.rejects(() => open(tampered, PASSPHRASE), WrongPassphraseError);
-  });
-
   test('an in-range cost factor cannot be edited without detection', async () => {
+    // kdf.n feeds directly into key derivation, so editing it — even to
+    // another value the range check accepts — derives a different key and
+    // the authentication tag no longer verifies.
     const envelope = await seal(bytes('secret'), PASSPHRASE);
     const tampered = clone(envelope);
     tampered.kdf.n = 32768;
@@ -211,51 +227,60 @@ describe('t2-s2 wrong passphrase', () => {
     await assert.rejects(() => open(tampered, PASSPHRASE), WrongPassphraseError);
   });
 
-  test('the header is authenticated as associated data, not left loose', async () => {
-    const envelope = await seal(bytes('payload'), PASSPHRASE);
+  test('a tampered salt derives a different key and fails authentication', async () => {
+    const envelope = await seal(bytes('secret'), PASSPHRASE);
+    const tampered = clone(envelope);
+    tampered.saltB64 = Buffer.alloc(SALT_LEN, 0x42).toString('base64');
 
-    // Derive the very key seal() used, independently of the module.
-    const key = await new Promise<Buffer>((resolve, reject) => {
-      scrypt(
-        Buffer.from(PASSPHRASE, 'utf8'),
-        Buffer.from(envelope.kdf.salt, 'base64'),
-        envelope.kdf.keyLength,
-        // Node's default maxmem is 32 MiB; the production cost needs 128 MiB.
-        { N: envelope.kdf.n, r: envelope.kdf.r, p: envelope.kdf.p, maxmem: 256 * 1024 * 1024 },
-        (error, derived) => (error ? reject(error) : resolve(derived as Buffer)),
-      );
-    });
-
-    // The key is correct: through the module, the envelope opens.
-    assert.ok((await open(envelope, PASSPHRASE)).equals(bytes('payload')));
-
-    // That same correct key must nonetheless fail without the associated data.
-    // If seal() left the header unauthenticated, this would succeed.
-    const bare = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.cipher.iv, 'base64'), {
-      authTagLength: 16,
-    });
-    bare.setAuthTag(Buffer.from(envelope.cipher.authTag, 'base64'));
-    assert.throws(() => {
-      bare.update(Buffer.from(envelope.cipher.ciphertext, 'base64'));
-      bare.final();
-    }, /unable to authenticate|auth/i);
+    await assert.rejects(() => open(tampered, PASSPHRASE), WrongPassphraseError);
   });
 });
 
 // ---------------------------------------------------------------------------
-// t2-s3 — envelope uniqueness
+// t2-s3 — a flipped ciphertext byte
 // ---------------------------------------------------------------------------
 
-describe('t2-s3 envelope uniqueness', () => {
-  test('sealing the same plaintext twice yields a fresh salt, iv and ciphertext', async () => {
+describe('t2-s3 a flipped ciphertext byte', () => {
+  test('flipping one byte of the ciphertext is caught by the auth tag, not returned as plaintext', async () => {
+    const envelope = await seal(bytes('secret payload'), PASSPHRASE);
+    const tampered = clone(envelope);
+    const raw = Buffer.from(tampered.ciphertextB64, 'base64');
+    assert.ok(raw.length > 0, 'precondition: there is a byte to flip');
+    raw.writeUInt8(raw.readUInt8(0) ^ 0x01, 0);
+    tampered.ciphertextB64 = raw.toString('base64');
+
+    let plaintext: Buffer | undefined;
+    await assert.rejects(
+      () => open(tampered, PASSPHRASE).then((p) => { plaintext = p; }),
+      WrongPassphraseError,
+    );
+    assert.equal(plaintext, undefined, 'no plaintext must be returned on a failed open');
+  });
+
+  test('flipping a byte inside the appended auth tag is also caught', async () => {
+    const envelope = await seal(bytes('secret payload'), PASSPHRASE);
+    const tampered = clone(envelope);
+    const raw = Buffer.from(tampered.ciphertextB64, 'base64');
+    raw.writeUInt8(raw.readUInt8(raw.length - 1) ^ 0x01, raw.length - 1);
+    tampered.ciphertextB64 = raw.toString('base64');
+
+    await assert.rejects(() => open(tampered, PASSPHRASE), WrongPassphraseError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// t2-s4 — envelope uniqueness
+// ---------------------------------------------------------------------------
+
+describe('t2-s4 envelope uniqueness', () => {
+  test('sealing the same plaintext twice yields a fresh saltB64, nonceB64 and ciphertextB64', async () => {
     const plaintext = 'identical input';
     const a = await seal(bytes(plaintext), PASSPHRASE);
     const b = await seal(bytes(plaintext), PASSPHRASE);
 
-    assert.notEqual(a.kdf.salt, b.kdf.salt, 'salt must be regenerated per seal');
-    assert.notEqual(a.cipher.iv, b.cipher.iv, 'iv must be regenerated per seal');
-    assert.notEqual(a.cipher.ciphertext, b.cipher.ciphertext, 'ciphertext must not repeat');
-    assert.notEqual(a.cipher.authTag, b.cipher.authTag, 'auth tag must not repeat');
+    assert.notEqual(a.saltB64, b.saltB64, 'saltB64 must be regenerated per seal');
+    assert.notEqual(a.nonceB64, b.nonceB64, 'nonceB64 must be regenerated per seal');
+    assert.notEqual(a.ciphertextB64, b.ciphertextB64, 'ciphertextB64 must not repeat');
   });
 
   test('both independently sealed envelopes still open', async () => {
@@ -266,27 +291,27 @@ describe('t2-s3 envelope uniqueness', () => {
     assert.ok((await open(b, PASSPHRASE)).equals(plaintext));
   });
 
-  test('salts and ivs are unique across many seals', async () => {
+  test('salts and nonces are unique across many seals', async () => {
     const salts = new Set<string>();
-    const ivs = new Set<string>();
+    const nonces = new Set<string>();
     const rounds = 24;
     for (let i = 0; i < rounds; i++) {
       const envelope = await seal(bytes('same'), PASSPHRASE);
-      salts.add(envelope.kdf.salt);
-      ivs.add(envelope.cipher.iv);
+      salts.add(envelope.saltB64);
+      nonces.add(envelope.nonceB64);
     }
     assert.equal(salts.size, rounds, 'every seal must draw a distinct salt');
-    assert.equal(ivs.size, rounds, 'every seal must draw a distinct iv');
+    assert.equal(nonces.size, rounds, 'every seal must draw a distinct nonce');
   });
 });
 
 // ---------------------------------------------------------------------------
-// t2-s4 — corrupt envelopes
+// t2-s5 — malformed / wrong-version envelopes
 // ---------------------------------------------------------------------------
 
-describe('t2-s4 corrupt envelope handling', () => {
+describe('t2-s5 malformed envelope handling', () => {
   test('VaultCorruptError carries the documented exit code', async () => {
-    const error = await open({} as unknown as Envelope, PASSPHRASE).then(
+    const error = await open({} as unknown as EncryptedEnvelope, PASSPHRASE).then(
       () => assert.fail('open should have rejected'),
       (e: unknown) => e as VaultCorruptError,
     );
@@ -306,84 +331,100 @@ describe('t2-s4 corrupt envelope handling', () => {
 
   for (const [label, value] of structurallyInvalid) {
     test(`rejects ${label} as a corrupt vault`, async () => {
-      await assert.rejects(() => open(value as unknown as Envelope, PASSPHRASE), VaultCorruptError);
+      await assert.rejects(() => open(value as unknown as EncryptedEnvelope, PASSPHRASE), VaultCorruptError);
     });
   }
 
+  test('rejects an envelope with version 2', async () => {
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    envelope.version = 2 as MutableEnvelope['version'];
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof VaultCorruptError);
+    assert.equal((error as VaultCorruptError).exitCode, 3);
+  });
+
+  test('rejects an envelope declaring cipher "aes-128-cbc"', async () => {
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    (envelope as unknown as { cipher: string }).cipher = 'aes-128-cbc';
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof VaultCorruptError);
+    assert.equal((error as VaultCorruptError).exitCode, 3);
+  });
+
+  test('rejects an 8-byte nonce', async () => {
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    envelope.nonceB64 = Buffer.alloc(8).toString('base64');
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof VaultCorruptError);
+    assert.equal((error as VaultCorruptError).exitCode, 3);
+  });
+
+  test('rejects a non-base64 ciphertext', async () => {
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    envelope.ciphertextB64 = 'not!valid!base64!!!!!!!!';
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assert.ok(error instanceof VaultCorruptError);
+    assert.equal((error as VaultCorruptError).exitCode, 3);
+  });
+
   test('rejects an envelope missing each required field in turn', async () => {
     const good = await seal(bytes('payload'), PASSPHRASE);
-    // Omit before re-adding, or the intersection keeps the nested fields
-    // required and `delete` is rejected.
-    type PartialEnvelope = Omit<Partial<MutableEnvelope>, 'kdf' | 'cipher'> & {
+    type PartialEnvelope = Omit<Partial<MutableEnvelope>, 'kdf'> & {
       kdf?: Partial<MutableEnvelope['kdf']>;
-      cipher?: Partial<MutableEnvelope['cipher']>;
     };
     const paths: Array<[string, () => PartialEnvelope]> = [
       ['version', () => { const e: PartialEnvelope = clone(good); delete e.version; return e; }],
-      ['kdf', () => { const e: PartialEnvelope = clone(good); delete e.kdf; return e; }],
       ['cipher', () => { const e: PartialEnvelope = clone(good); delete e.cipher; return e; }],
-      ['kdf.salt', () => { const e: PartialEnvelope = clone(good); delete e.kdf?.salt; return e; }],
+      ['kdf', () => { const e: PartialEnvelope = clone(good); delete e.kdf; return e; }],
       ['kdf.n', () => { const e: PartialEnvelope = clone(good); delete e.kdf?.n; return e; }],
-      ['kdf.algorithm', () => { const e: PartialEnvelope = clone(good); delete e.kdf?.algorithm; return e; }],
-      ['cipher.iv', () => { const e: PartialEnvelope = clone(good); delete e.cipher?.iv; return e; }],
-      ['cipher.authTag', () => { const e: PartialEnvelope = clone(good); delete e.cipher?.authTag; return e; }],
-      ['cipher.ciphertext', () => { const e: PartialEnvelope = clone(good); delete e.cipher?.ciphertext; return e; }],
+      ['kdf.name', () => { const e: PartialEnvelope = clone(good); delete e.kdf?.name; return e; }],
+      ['saltB64', () => { const e: PartialEnvelope = clone(good); delete e.saltB64; return e; }],
+      ['nonceB64', () => { const e: PartialEnvelope = clone(good); delete e.nonceB64; return e; }],
+      ['ciphertextB64', () => { const e: PartialEnvelope = clone(good); delete e.ciphertextB64; return e; }],
     ];
 
     for (const [label, build] of paths) {
       await assert.rejects(
-        () => open(build() as unknown as Envelope, PASSPHRASE),
+        () => open(build() as unknown as EncryptedEnvelope, PASSPHRASE),
         VaultCorruptError,
         `missing ${label} should be a corrupt vault`,
       );
     }
   });
 
-  test('rejects an unknown envelope version', async () => {
+  test('rejects an unknown KDF name rather than guessing', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.version = (ENVELOPE_VERSION + 1) as MutableEnvelope['version'];
+    (envelope.kdf as { name: string }).name = 'pbkdf2';
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
-  test('rejects an unknown KDF algorithm rather than guessing', async () => {
+  test('rejects a saltB64 of the wrong length', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    (envelope.kdf as { algorithm: string }).algorithm = 'pbkdf2';
+    envelope.saltB64 = Buffer.alloc(8).toString('base64');
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
-  test('rejects an unknown cipher algorithm rather than guessing', async () => {
+  test('rejects a ciphertextB64 too short to hold an auth tag', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    (envelope.cipher as { algorithm: string }).algorithm = 'aes-128-cbc';
-    await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
-  });
-
-  test('rejects a salt of the wrong length', async () => {
-    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.kdf.salt = Buffer.alloc(8).toString('base64');
-    await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
-  });
-
-  test('rejects an iv of the wrong length', async () => {
-    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.cipher.iv = Buffer.alloc(8).toString('base64');
-    await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
-  });
-
-  test('rejects an auth tag of the wrong length', async () => {
-    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.cipher.authTag = Buffer.alloc(8).toString('base64');
+    envelope.ciphertextB64 = Buffer.alloc(4).toString('base64');
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
   test('rejects fields that are not strings', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    (envelope.cipher as unknown as { ciphertext: unknown }).ciphertext = { length: 1 };
-    await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
-  });
-
-  test('rejects non-base64 text instead of silently decoding it', async () => {
-    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.kdf.salt = 'not!valid!base64!!!!!!!!';
+    (envelope as unknown as { ciphertextB64: unknown }).ciphertextB64 = { length: 1 };
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
@@ -392,10 +433,10 @@ describe('t2-s4 corrupt envelope handling', () => {
     // decodes to a perfectly well-sized 16-byte salt and slips past any
     // length check. Only a strict decode rejects it.
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    const canonical = envelope.kdf.salt;
-    envelope.kdf.salt = `${canonical.slice(0, 4)}!${canonical.slice(4)}`;
+    const canonical = envelope.saltB64;
+    envelope.saltB64 = `${canonical.slice(0, 4)}!${canonical.slice(4)}`;
     assert.equal(
-      Buffer.from(envelope.kdf.salt, 'base64').length,
+      Buffer.from(envelope.saltB64, 'base64').length,
       16,
       'precondition: the tampered salt must still decode to 16 bytes',
     );
@@ -403,12 +444,12 @@ describe('t2-s4 corrupt envelope handling', () => {
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
-  test('rejects stray characters in the ciphertext, which has no length check', async () => {
+  test('rejects stray characters in the ciphertext, which has no fixed length check', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    const canonical = envelope.cipher.ciphertext;
-    envelope.cipher.ciphertext = `${canonical.slice(0, 2)}\n \t${canonical.slice(2)}`;
+    const canonical = envelope.ciphertextB64;
+    envelope.ciphertextB64 = `${canonical.slice(0, 2)}\n \t${canonical.slice(2)}`;
     assert.ok(
-      Buffer.from(envelope.cipher.ciphertext, 'base64').equals(Buffer.from(canonical, 'base64')),
+      Buffer.from(envelope.ciphertextB64, 'base64').equals(Buffer.from(canonical, 'base64')),
       'precondition: a lenient decoder sees these as identical',
     );
 
@@ -417,7 +458,7 @@ describe('t2-s4 corrupt envelope handling', () => {
 
   test('does not echo an unbounded hostile value into the error message', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    (envelope.kdf as { algorithm: string }).algorithm = 'X'.repeat(100_000);
+    (envelope.kdf as { name: string }).name = 'X'.repeat(100_000);
 
     const error = await open(envelope, PASSPHRASE).then(
       () => assert.fail('open should have rejected'),
@@ -433,7 +474,7 @@ describe('t2-s4 corrupt envelope handling', () => {
   test('strips control characters before quoting a value back to the terminal', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
     // A vault file that tries to repaint the terminal it is reported on.
-    (envelope.kdf as { algorithm: string }).algorithm = '\u001b[2J\u001b[31mscrypt';
+    (envelope.kdf as { name: string }).name = '\u001b[2J\u001b[31mscrypt';
 
     const error = await open(envelope, PASSPHRASE).then(
       () => assert.fail('open should have rejected'),
@@ -448,7 +489,7 @@ describe('t2-s4 corrupt envelope handling', () => {
   test('rejects base64url and whitespace-padded encodings rather than reinterpreting them', async () => {
     for (const variant of ['AQEBAQEBAQEBAQEBAQEBAQ', 'AQEBAQEBAQEBAQEBAQEBAQ ==', '_QEBAQEBAQEBAQEBAQEBAQ==']) {
       const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-      envelope.kdf.salt = variant;
+      envelope.saltB64 = variant;
       await assert.rejects(
         () => open(envelope, PASSPHRASE),
         VaultCorruptError,
@@ -459,7 +500,7 @@ describe('t2-s4 corrupt envelope handling', () => {
 
   test('a corrupt envelope is never confused with a passphrase failure', async () => {
     const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
-    envelope.kdf.salt = Buffer.alloc(4).toString('base64');
+    envelope.saltB64 = Buffer.alloc(4).toString('base64');
     const error = await open(envelope, PASSPHRASE).then(
       () => assert.fail('open should have rejected'),
       (e: unknown) => e,
@@ -478,7 +519,7 @@ describe('t2-s4 corrupt envelope handling', () => {
       () => seal('payload' as unknown as Buffer, PASSPHRASE),
       () => seal(new Uint8Array([1, 2, 3]) as unknown as Buffer, PASSPHRASE),
       () => seal(bytes('payload'), undefined as unknown as string),
-      () => open({} as Envelope, undefined as unknown as string),
+      () => open({} as EncryptedEnvelope, undefined as unknown as string),
     ]) {
       const error = await call().then(
         () => assert.fail('should have rejected'),
@@ -491,59 +532,66 @@ describe('t2-s4 corrupt envelope handling', () => {
 });
 
 // ---------------------------------------------------------------------------
-// t2-s5 — kdf block shape
+// t2-s6 — kdf block shape and KDF parameter validation
 // ---------------------------------------------------------------------------
 
-describe('t2-s5 kdf block shape', () => {
+describe('t2-s6 kdf block shape and parameter validation', () => {
   test('the kdf block records scrypt with the specified cost parameters', async () => {
     const envelope = await seal(bytes('payload'), PASSPHRASE);
 
     assert.equal(envelope.version, ENVELOPE_VERSION);
-    assert.equal(envelope.kdf.algorithm, 'scrypt');
+    assert.equal(envelope.kdf.name, 'scrypt');
     assert.equal(envelope.kdf.n, 131072);
     assert.equal(envelope.kdf.r, 8);
     assert.equal(envelope.kdf.p, 1);
-    assert.equal(envelope.kdf.keyLength, 32);
   });
 
-  test('the salt is 16 fresh random bytes, stored as base64', async () => {
+  test('saltB64 decodes to exactly 16 bytes of fresh randomness', async () => {
     const envelope = await seal(bytes('payload'), PASSPHRASE);
-    const salt = Buffer.from(envelope.kdf.salt, 'base64');
+    const salt = Buffer.from(envelope.saltB64, 'base64');
 
-    assert.equal(typeof envelope.kdf.salt, 'string');
+    assert.equal(typeof envelope.saltB64, 'string');
     assert.equal(salt.length, 16);
-    assert.equal(salt.toString('base64'), envelope.kdf.salt, 'salt must be canonical base64');
+    assert.equal(salt.toString('base64'), envelope.saltB64, 'saltB64 must be canonical base64');
     assert.notEqual(salt.toString('hex'), '0'.repeat(32), 'salt must not be all zeroes');
   });
 
   test('the kdf block carries exactly the documented keys', async () => {
     const envelope = await seal(bytes('payload'), PASSPHRASE);
+    assert.deepEqual(Object.keys(envelope.kdf).sort(), ['n', 'name', 'p', 'r']);
+  });
+
+  test('the envelope carries exactly the documented top-level keys', async () => {
+    const envelope = await seal(bytes('payload'), PASSPHRASE);
     assert.deepEqual(
-      Object.keys(envelope.kdf).sort(),
-      ['algorithm', 'keyLength', 'n', 'p', 'r', 'salt'],
+      Object.keys(envelope).sort(),
+      ['cipher', 'ciphertextB64', 'kdf', 'nonceB64', 'saltB64', 'version'],
     );
   });
 
-  test('the cipher block describes AES-256-GCM with a 12-byte iv and 16-byte tag', async () => {
+  test('cipher is the plain algorithm string, and nonceB64 decodes to 12 bytes', async () => {
     const envelope = await seal(bytes('payload'), PASSPHRASE);
 
-    assert.equal(envelope.cipher.algorithm, 'aes-256-gcm');
-    assert.equal(Buffer.from(envelope.cipher.iv, 'base64').length, 12);
-    assert.equal(Buffer.from(envelope.cipher.authTag, 'base64').length, 16);
-    assert.deepEqual(
-      Object.keys(envelope.cipher).sort(),
-      ['algorithm', 'authTag', 'ciphertext', 'iv'],
-    );
+    assert.equal(envelope.cipher, 'aes-256-gcm');
+    assert.equal(Buffer.from(envelope.nonceB64, 'base64').length, NONCE_LEN);
   });
 
-  test('DEFAULT_KDF is the published default and is itself in range', () => {
-    assert.equal(DEFAULT_KDF.algorithm, 'scrypt');
-    assert.equal(DEFAULT_KDF.n, 131072);
-    assert.equal(DEFAULT_KDF.r, 8);
-    assert.equal(DEFAULT_KDF.p, 1);
-    assert.equal(DEFAULT_KDF.keyLength, 32);
-    assert.equal(DEFAULT_KDF.saltBytes, 16);
-    assert.doesNotThrow(() => validateKdfParams({ ...DEFAULT_KDF, salt: Buffer.alloc(16).toString('base64') }));
+  test('ciphertextB64 decodes to the plaintext length plus a 16-byte auth tag', async () => {
+    const plaintext = bytes('a payload of known length');
+    const envelope = await seal(plaintext, PASSPHRASE);
+    const combined = Buffer.from(envelope.ciphertextB64, 'base64');
+    assert.equal(combined.length, plaintext.length + AUTH_TAG_LEN);
+  });
+
+  test('KDF_PARAMS is the published default and is itself in range', () => {
+    assert.equal(KDF_PARAMS.name, 'scrypt');
+    assert.equal(KDF_PARAMS.n, 131072);
+    assert.equal(KDF_PARAMS.r, 8);
+    assert.equal(KDF_PARAMS.p, 1);
+    assert.equal(KEY_LEN, 32);
+    assert.equal(SALT_LEN, 16);
+    assert.equal(NONCE_LEN, 12);
+    assert.doesNotThrow(() => validateKdfParams(KDF_PARAMS));
   });
 
   test('the envelope is plain JSON-serialisable data, not a class instance', async () => {
@@ -551,15 +599,8 @@ describe('t2-s5 kdf block shape', () => {
     assert.equal(Object.getPrototypeOf(envelope), Object.prototype);
     assert.deepEqual(JSON.parse(JSON.stringify(envelope)), envelope);
   });
-});
 
-// ---------------------------------------------------------------------------
-// t2-s6 — KDF parameter validation, before any derivation
-// ---------------------------------------------------------------------------
-
-describe('t2-s6 KDF parameter validation', () => {
-  const salt = Buffer.alloc(16, 7).toString('base64');
-  const base = { algorithm: 'scrypt' as const, n: 131072, r: 8, p: 1, keyLength: 32, salt };
+  const base = { name: 'scrypt' as const, n: 131072, r: 8, p: 1 };
 
   const rejected: Array<[string, Record<string, unknown>]> = [
     ['n below the floor', { ...base, n: 1024 }],
@@ -585,13 +626,14 @@ describe('t2-s6 KDF parameter validation', () => {
     ['p of four', { ...base, p: 4 }],
     ['p above the ceiling', { ...base, p: 1024 }],
     ['p given as a string', { ...base, p: '1' }],
-    ['a key length that is not 32', { ...base, keyLength: 16 }],
     // r is pinned at 8, so only n can push the working set over the budget.
     ['a combination that exceeds the memory budget', { ...base, n: 2 ** 20, r: 8 }],
+    ['an unsupported kdf.name', { ...base, name: 'pbkdf2' }],
+    ['a missing kdf.name', { n: 131072, r: 8, p: 1 }],
   ];
 
   for (const [label, params] of rejected) {
-    test(`rejects ${label}`, () => {
+    test(`validateKdfParams rejects ${label}`, () => {
       assert.throws(
         () => validateKdfParams(params),
         (error: unknown) => {
@@ -602,7 +644,7 @@ describe('t2-s6 KDF parameter validation', () => {
     });
   }
 
-  test('accepts the in-range parameters the vault actually uses', () => {
+  test('validateKdfParams accepts the in-range parameters the vault actually uses', () => {
     assert.doesNotThrow(() => validateKdfParams(base));
     // The floor itself is acceptable — an older vault sealed at 2^15 must
     // still open. One step below it is not; see the rejection table above.
@@ -635,7 +677,85 @@ describe('t2-s6 KDF parameter validation', () => {
     envelope.kdf.n = 2;
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
+});
 
+// ---------------------------------------------------------------------------
+// t2-a2 — a hostile n cannot force a multi-gigabyte scrypt allocation
+// ---------------------------------------------------------------------------
+
+describe('t2-a2 an oversized kdf.n cannot trigger a multi-gigabyte allocation', () => {
+  test('rejects kdf.n = 1073741824 in well under 50ms, before scrypt ever runs', async () => {
+    // scrypt's working set is 128 * N * r bytes. At r = 8 this N would ask for
+    // roughly 1 TiB — validation must refuse it synchronously, not attempt it
+    // and fail slowly, or an attacker who can overwrite the vault file gets to
+    // pick our memory usage.
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    envelope.kdf.n = 1073741824;
+
+    const started = process.hrtime.bigint();
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+
+    assert.ok(error instanceof VaultCorruptError, `expected VaultCorruptError, got ${error}`);
+    assert.ok(
+      elapsedMs < 50,
+      `rejection took ${elapsedMs.toFixed(1)}ms; scrypt was almost certainly invoked`,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// t2-a3 — a failed open never leaks the passphrase or the plaintext
+// ---------------------------------------------------------------------------
+
+describe('t2-a3 a failed open does not leak secrets through the error', () => {
+  const SENTINEL_PASSPHRASE = 'SENTINEL-PASS';
+  const SENTINEL_PLAINTEXT = bytes('SENTINEL-SECRET');
+
+  function assertNoSecrets(error: unknown, label: string): void {
+    // The exact channel a crash reporter or an uncaught-exception handler
+    // would use: JSON.stringify for a logged object, .stack for the trace
+    // printed to the terminal.
+    const serialised = `${JSON.stringify(error)} ${(error as Error).stack ?? ''}`;
+    assert.ok(!serialised.includes('SENTINEL-PASS'), `${label}: leaked the passphrase`);
+    assert.ok(!serialised.includes('SENTINEL-SECRET'), `${label}: leaked the plaintext`);
+  }
+
+  test('a wrong-passphrase failure serialises to neither secret', async () => {
+    const envelope = await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE);
+    const error = await open(envelope, 'a different passphrase entirely').then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'WrongPassphraseError');
+  });
+
+  test('a tampered-ciphertext failure serialises to neither secret', async () => {
+    const envelope = clone(await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE));
+    const raw = Buffer.from(envelope.ciphertextB64, 'base64');
+    raw.writeUInt8(raw.readUInt8(0) ^ 0x01, 0);
+    envelope.ciphertextB64 = raw.toString('base64');
+
+    const error = await open(envelope, SENTINEL_PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'tampered ciphertext');
+  });
+
+  test('a corrupt-envelope failure serialises to neither secret', async () => {
+    const envelope = clone(await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE));
+    envelope.kdf.n = 1073741824;
+
+    const error = await open(envelope, SENTINEL_PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'VaultCorruptError');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -655,7 +775,7 @@ describe('t2-a1 the sealed work factor is not negotiable', () => {
     ['a kdf block', { kdf: { n: 16384, r: 1, p: 1 } }],
     ['a lone weakened n', { kdf: { n: 1024 } }],
     ['bare cost factors', { n: 16384, r: 1, p: 1 }],
-    ['an envelope-shaped copy of a weaker vault', { kdf: { algorithm: 'scrypt', n: 2, r: 1, p: 1 } }],
+    ['an envelope-shaped copy of a weaker vault', { kdf: { name: 'scrypt', n: 2, r: 1, p: 1 } }],
   ];
 
   for (const [label, options] of smuggled) {
@@ -666,15 +786,14 @@ describe('t2-a1 the sealed work factor is not negotiable', () => {
         plaintext: Buffer,
         passphrase: string,
         options?: unknown,
-      ) => Promise<Envelope>;
+      ) => Promise<EncryptedEnvelope>;
 
       const envelope = await smuggle(bytes('payload'), PASSPHRASE, options);
 
       assert.equal(envelope.kdf.n, 131072, `n was weakened by ${label}`);
       assert.equal(envelope.kdf.r, 8, `r was weakened by ${label}`);
       assert.equal(envelope.kdf.p, 1, `p was weakened by ${label}`);
-      assert.equal(envelope.kdf.algorithm, 'scrypt');
-      assert.equal(envelope.kdf.keyLength, 32);
+      assert.equal(envelope.kdf.name, 'scrypt');
     });
   }
 
@@ -711,7 +830,7 @@ describe('Cipher conformance', () => {
   test('both error types descend from VaultError and from Error', async () => {
     const envelope = await seal(bytes('payload'), PASSPHRASE);
     const wrong = await open(envelope, 'nope').catch((e: unknown) => e);
-    const corrupt = await open({} as Envelope, PASSPHRASE).catch((e: unknown) => e);
+    const corrupt = await open({} as EncryptedEnvelope, PASSPHRASE).catch((e: unknown) => e);
 
     for (const error of [wrong, corrupt]) {
       assert.ok(error instanceof VaultError);
