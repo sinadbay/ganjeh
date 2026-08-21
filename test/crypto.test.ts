@@ -102,6 +102,22 @@ describe('t2-s1 round-trip fidelity', () => {
     assert.equal(opened.length, 0);
   });
 
+  test('round-trips a single byte', async () => {
+    const plaintext = Buffer.from([0x42]);
+    const envelope = await seal(plaintext, PASSPHRASE);
+    const opened = await open(envelope, PASSPHRASE);
+    assert.ok(opened.equals(plaintext));
+    assert.equal(opened.length, 1);
+  });
+
+  test('round-trips a full mebibyte', async () => {
+    const plaintext = Buffer.from(Array.from({ length: 1024 * 1024 }, (_, i) => i % 256));
+    const envelope = await seal(plaintext, PASSPHRASE);
+    const opened = await open(envelope, PASSPHRASE);
+    assert.equal(opened.length, 1024 * 1024);
+    assert.ok(opened.equals(plaintext));
+  });
+
   test('round-trips multi-byte UTF-8 without mangling it', async () => {
     // The NUL is written as an escape on purpose: a raw one in the source
     // makes git treat this file as binary and the diffs unreadable.
@@ -636,6 +652,85 @@ describe('t2-s6 KDF parameter validation', () => {
     await assert.rejects(() => open(envelope, PASSPHRASE), VaultCorruptError);
   });
 
+});
+
+// ---------------------------------------------------------------------------
+// t2-a2 — a hostile n cannot force a multi-gigabyte scrypt allocation
+// ---------------------------------------------------------------------------
+
+describe('t2-a2 an oversized kdf.n cannot trigger a multi-gigabyte allocation', () => {
+  test('rejects kdf.n = 1073741824 in well under 50ms, before scrypt ever runs', async () => {
+    // scrypt's working set is 128 * N * r bytes. At r = 8 this N would ask for
+    // roughly 1 TiB — validation must refuse it synchronously, not attempt it
+    // and fail slowly, or an attacker who can overwrite the vault file gets to
+    // pick our memory usage.
+    const envelope = clone(await seal(bytes('payload'), PASSPHRASE));
+    envelope.kdf.n = 1073741824;
+
+    const started = process.hrtime.bigint();
+    const error = await open(envelope, PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+
+    assert.ok(error instanceof VaultCorruptError, `expected VaultCorruptError, got ${error}`);
+    assert.ok(
+      elapsedMs < 50,
+      `rejection took ${elapsedMs.toFixed(1)}ms; scrypt was almost certainly invoked`,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// t2-a3 — a failed open never leaks the passphrase or the plaintext
+// ---------------------------------------------------------------------------
+
+describe('t2-a3 a failed open does not leak secrets through the error', () => {
+  const SENTINEL_PASSPHRASE = 'SENTINEL-PASS';
+  const SENTINEL_PLAINTEXT = bytes('SENTINEL-SECRET');
+
+  function assertNoSecrets(error: unknown, label: string): void {
+    // The exact channel a crash reporter or an uncaught-exception handler
+    // would use: JSON.stringify for a logged object, .stack for the trace
+    // printed to the terminal.
+    const serialised = `${JSON.stringify(error)} ${(error as Error).stack ?? ''}`;
+    assert.ok(!serialised.includes('SENTINEL-PASS'), `${label}: leaked the passphrase`);
+    assert.ok(!serialised.includes('SENTINEL-SECRET'), `${label}: leaked the plaintext`);
+  }
+
+  test('a wrong-passphrase failure serialises to neither secret', async () => {
+    const envelope = await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE);
+    const error = await open(envelope, 'a different passphrase entirely').then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'WrongPassphraseError');
+  });
+
+  test('a tampered-ciphertext failure serialises to neither secret', async () => {
+    const envelope = clone(await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE));
+    const raw = Buffer.from(envelope.cipher.ciphertext, 'base64');
+    raw.writeUInt8(raw.readUInt8(0) ^ 0x01, 0);
+    envelope.cipher.ciphertext = raw.toString('base64');
+
+    const error = await open(envelope, SENTINEL_PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'tampered ciphertext');
+  });
+
+  test('a corrupt-envelope failure serialises to neither secret', async () => {
+    const envelope = clone(await seal(SENTINEL_PLAINTEXT, SENTINEL_PASSPHRASE));
+    envelope.kdf.n = 1073741824;
+
+    const error = await open(envelope, SENTINEL_PASSPHRASE).then(
+      () => assert.fail('open should have rejected'),
+      (e: unknown) => e,
+    );
+    assertNoSecrets(error, 'VaultCorruptError');
+  });
 });
 
 // ---------------------------------------------------------------------------
