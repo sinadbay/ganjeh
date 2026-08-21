@@ -51,9 +51,9 @@ export interface CipherBlock {
 }
 
 export interface Envelope {
-  version: typeof ENVELOPE_VERSION;
-  kdf: KdfBlock;
-  cipher: CipherBlock;
+  readonly version: typeof ENVELOPE_VERSION;
+  readonly kdf: KdfBlock;
+  readonly cipher: CipherBlock;
 }
 
 export interface SealOptions {
