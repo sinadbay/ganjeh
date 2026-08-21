@@ -381,11 +381,13 @@ export async function seal(
   passphrase: string,
   options: SealOptions = {},
 ): Promise<Envelope> {
+  // A caller bug, not a damaged file: say so with the ordinary JS error rather
+  // than sending someone off to inspect a vault that is perfectly intact.
   if (typeof plaintext !== 'string') {
-    throw new VaultCorruptError('plaintext must be a string');
+    throw new TypeError('seal(): plaintext must be a string');
   }
   if (typeof passphrase !== 'string') {
-    throw new VaultCorruptError('passphrase must be a string');
+    throw new TypeError('seal(): passphrase must be a string');
   }
 
   const salt = randomBytes(SALT_BYTES);
@@ -433,7 +435,7 @@ export async function seal(
 
 export async function open(envelope: Envelope, passphrase: string): Promise<string> {
   if (typeof passphrase !== 'string') {
-    throw new VaultCorruptError('passphrase must be a string');
+    throw new TypeError('open(): passphrase must be a string');
   }
   if (!isPlainRecord(envelope)) {
     throw new VaultCorruptError('envelope must be an object');
