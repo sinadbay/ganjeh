@@ -106,6 +106,9 @@ const MAX_R = 32;
 const MIN_P = 1;
 const MAX_P = 16;
 
+/** Cap on how much of an untrusted value is quoted back in an error message. */
+const MAX_ECHOED_VALUE_CHARS = 40;
+
 /** scrypt's working set is 128 * N * r bytes. Cap it so a file cannot OOM us. */
 const MAX_KDF_MEMORY_BYTES = 256 * 1024 * 1024;
 
@@ -164,6 +167,29 @@ function readField(source: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(source, key) ? source[key] : undefined;
 }
 
+/**
+ * Render an untrusted value for an error message.
+ *
+ * These messages end up on a terminal. A vault file can name its algorithm
+ * with a megabyte of text, or with ANSI escape sequences that rewrite what the
+ * user sees, so the value is stripped of control characters and capped before
+ * it is quoted back.
+ */
+function describeUntrusted(value: unknown): string {
+  if (typeof value !== 'string') {
+    return typeof value === 'number' || typeof value === 'boolean' || value === null
+      ? String(value)
+      : Object.prototype.toString.call(value);
+  }
+  // eslint-disable-next-line no-control-regex
+  const printable = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+  const clipped =
+    printable.length > MAX_ECHOED_VALUE_CHARS
+      ? `${printable.slice(0, MAX_ECHOED_VALUE_CHARS)}...`
+      : printable;
+  return JSON.stringify(clipped);
+}
+
 function requireString(source: Record<string, unknown>, key: string, where: string): string {
   const value = readField(source, key);
   if (typeof value !== 'string') {
@@ -172,24 +198,39 @@ function requireString(source: Record<string, unknown>, key: string, where: stri
   return value;
 }
 
+/** Canonical, padded base64 and nothing else — no whitespace, no base64url. */
+const CANONICAL_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
 /**
  * Decode base64 strictly.
  *
  * `Buffer.from(s, 'base64')` silently discards anything it does not recognise,
- * so `"!!!!"` decodes to an empty buffer rather than failing. Round-tripping
- * the result back to base64 and demanding an exact match rejects input that
- * was only accepted by that leniency.
+ * so stray characters vanish and the result still looks well-formed — a salt
+ * with a `!` spliced into it decodes to the same 16 bytes and sails past a
+ * length check. The shape is therefore checked before decoding, not inferred
+ * from the decoded output.
  */
 function decodeBase64(value: string, expectedBytes: number | null, where: string): Buffer {
-  const decoded = Buffer.from(value, 'base64');
-  if (decoded.toString('base64') !== value) {
+  if (!CANONICAL_BASE64.test(value)) {
     throw new VaultCorruptError(`${where} is not valid base64`);
   }
-  if (expectedBytes !== null && decoded.length !== expectedBytes) {
-    throw new VaultCorruptError(
-      `${where} must decode to ${expectedBytes} bytes, got ${decoded.length}`,
-    );
+
+  const decoded = Buffer.from(value, 'base64');
+
+  if (expectedBytes !== null) {
+    if (decoded.length !== expectedBytes) {
+      throw new VaultCorruptError(
+        `${where} must decode to ${expectedBytes} bytes, got ${decoded.length}`,
+      );
+    }
+    // The alphabet is right and the length is right, but the final quantum can
+    // still carry bits that no encoder would emit. Re-encoding is cheap on
+    // these fixed-size fields, and it pins them to exactly one representation.
+    if (decoded.toString('base64') !== value) {
+      throw new VaultCorruptError(`${where} is not canonically encoded`);
+    }
   }
+
   return decoded;
 }
 
@@ -236,7 +277,7 @@ export function validateKdfParams(input: unknown): ValidatedKdfParams {
   const algorithm = readField(input, 'algorithm');
   if (algorithm !== 'scrypt') {
     throw new VaultCorruptError(
-      `unsupported kdf.algorithm ${JSON.stringify(algorithm)}; expected "scrypt"`,
+      `unsupported kdf.algorithm ${describeUntrusted(algorithm)}; expected "scrypt"`,
     );
   }
 
@@ -251,7 +292,7 @@ export function validateKdfParams(input: unknown): ValidatedKdfParams {
   const keyLength = readField(input, 'keyLength');
   if (keyLength !== KEY_BYTES) {
     throw new VaultCorruptError(
-      `kdf.keyLength must be ${KEY_BYTES} for ${CIPHER_ALGORITHM}, got ${String(keyLength)}`,
+      `kdf.keyLength must be ${KEY_BYTES} for ${CIPHER_ALGORITHM}, got ${describeUntrusted(keyLength)}`,
     );
   }
 
@@ -401,7 +442,7 @@ export async function open(envelope: Envelope, passphrase: string): Promise<stri
   const version = readField(envelope, 'version');
   if (version !== ENVELOPE_VERSION) {
     throw new VaultCorruptError(
-      `unsupported envelope version ${String(version)}; this build reads version ${ENVELOPE_VERSION}`,
+      `unsupported envelope version ${describeUntrusted(version)}; this build reads version ${ENVELOPE_VERSION}`,
     );
   }
 
@@ -414,7 +455,7 @@ export async function open(envelope: Envelope, passphrase: string): Promise<stri
   }
   if (readField(cipherBlock, 'algorithm') !== CIPHER_ALGORITHM) {
     throw new VaultCorruptError(
-      `unsupported cipher.algorithm ${JSON.stringify(readField(cipherBlock, 'algorithm'))}; ` +
+      `unsupported cipher.algorithm ${describeUntrusted(readField(cipherBlock, 'algorithm'))}; ` +
         `expected ${JSON.stringify(CIPHER_ALGORITHM)}`,
     );
   }
