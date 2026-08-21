@@ -220,7 +220,8 @@ describe('t2-s2 wrong passphrase', () => {
         Buffer.from(PASSPHRASE, 'utf8'),
         Buffer.from(envelope.kdf.salt, 'base64'),
         envelope.kdf.keyLength,
-        { N: envelope.kdf.n, r: envelope.kdf.r, p: envelope.kdf.p },
+        // Node's default maxmem is 32 MiB; the production cost needs 128 MiB.
+        { N: envelope.kdf.n, r: envelope.kdf.r, p: envelope.kdf.p, maxmem: 256 * 1024 * 1024 },
         (error, derived) => (error ? reject(error) : resolve(derived as Buffer)),
       );
     });

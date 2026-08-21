@@ -56,20 +56,23 @@ export interface Envelope {
   readonly cipher: CipherBlock;
 }
 
-export interface SealOptions {
-  /** Override the KDF cost. Overrides are validated exactly like a file's. */
-  readonly kdf?: Partial<Pick<KdfBlock, 'n' | 'r' | 'p'>>;
-}
-
 /**
  * The contract this module fulfils. Once `src/types.ts` lands with the shared
  * `Cipher` interface, this local declaration should be deleted and the type
  * imported from there instead; the shapes are structurally identical, so the
  * exported `cipher` object will satisfy it unchanged.
+ *
+ * The unit is bytes, in both directions. A vault holds whatever the layer
+ * above chooses to put in it, and `open` returns exactly the bytes `seal` was
+ * given — a text-shaped API would quietly replace every byte that is not
+ * valid UTF-8 with U+FFFD, and the damage would only show up on restore.
+ * Callers holding text encode it themselves: `Buffer.from(json, 'utf8')`.
+ *
+ * There is deliberately no third argument. See `seal`.
  */
 export interface Cipher {
-  seal(plaintext: string, passphrase: string, options?: SealOptions): Promise<Envelope>;
-  open(envelope: Envelope, passphrase: string): Promise<string>;
+  seal(plaintext: Buffer, passphrase: string): Promise<Envelope>;
+  open(envelope: Envelope, passphrase: string): Promise<Buffer>;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,18 +96,23 @@ const IV_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
 
 /**
- * Accepted range for cost factors read out of a vault file.
+ * Accepted cost factors for a vault file.
  *
  * The floor matters as much as the ceiling: a file claiming n = 2 would derive
  * instantly and be trivial to crack offline, so we refuse to open it at all
- * rather than hand back plaintext that was never meaningfully protected.
+ * rather than hand back plaintext that was never meaningfully protected. The
+ * floor is 2^15 — half what we write, which leaves room for a vault sealed by
+ * an older build without accepting a cost the spec never permitted.
+ *
+ * `r` and `p` are not a range. The spec fixes them at 8 and 1, and a file
+ * naming anything else is either damaged or an attacker asking for a weaker
+ * derivation; r = 1 alone cuts the work, and the memory, by a factor of eight.
+ * Accepting a range here would be accepting a downgrade.
  */
-const MIN_N = 16384; //  2^14
+const MIN_N = 32768; //  2^15
 const MAX_N = 1_048_576; //  2^20
-const MIN_R = 1;
-const MAX_R = 32;
-const MIN_P = 1;
-const MAX_P = 16;
+const REQUIRED_R = 8;
+const REQUIRED_P = 1;
 
 /** Cap on how much of an untrusted value is quoted back in an error message. */
 const MAX_ECHOED_VALUE_CHARS = 40;
@@ -134,7 +142,7 @@ export abstract class VaultError extends Error {
  */
 export class WrongPassphraseError extends VaultError {
   readonly code = 'WRONG_PASSPHRASE';
-  readonly exitCode = 3;
+  readonly exitCode = 2;
 
   constructor(
     message = 'Unable to decrypt the vault: the passphrase does not match, or the contents have been altered.',
@@ -146,7 +154,7 @@ export class WrongPassphraseError extends VaultError {
 /** The envelope is not a well-formed, in-range vault. */
 export class VaultCorruptError extends VaultError {
   readonly code = 'VAULT_CORRUPT';
-  readonly exitCode = 4;
+  readonly exitCode = 3;
 
   constructor(detail: string) {
     super(`Vault file is not readable: ${detail}`);
@@ -234,19 +242,32 @@ function decodeBase64(value: string, expectedBytes: number | null, where: string
   return decoded;
 }
 
+function requireInteger(value: unknown, name: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw new VaultCorruptError(`kdf.${name} must be an integer`);
+  }
+  return value;
+}
+
 function requireBoundedInteger(
   value: unknown,
   name: string,
   min: number,
   max: number,
 ): number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) {
-    throw new VaultCorruptError(`kdf.${name} must be an integer`);
+  const integer = requireInteger(value, name);
+  if (integer < min || integer > max) {
+    throw new VaultCorruptError(`kdf.${name} must be between ${min} and ${max}, got ${integer}`);
   }
-  if (value < min || value > max) {
-    throw new VaultCorruptError(`kdf.${name} must be between ${min} and ${max}, got ${value}`);
+  return integer;
+}
+
+function requireExactInteger(value: unknown, name: string, expected: number): number {
+  const integer = requireInteger(value, name);
+  if (integer !== expected) {
+    throw new VaultCorruptError(`kdf.${name} must be exactly ${expected}, got ${integer}`);
   }
-  return value;
+  return integer;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,8 +307,8 @@ export function validateKdfParams(input: unknown): ValidatedKdfParams {
     throw new VaultCorruptError(`kdf.n must be a power of two, got ${n}`);
   }
 
-  const r = requireBoundedInteger(readField(input, 'r'), 'r', MIN_R, MAX_R);
-  const p = requireBoundedInteger(readField(input, 'p'), 'p', MIN_P, MAX_P);
+  const r = requireExactInteger(readField(input, 'r'), 'r', REQUIRED_R);
+  const p = requireExactInteger(readField(input, 'p'), 'p', REQUIRED_P);
 
   const keyLength = readField(input, 'keyLength');
   if (keyLength !== KEY_BYTES) {
@@ -376,26 +397,36 @@ function wipe(buffer: Buffer): void {
 // seal / open
 // ---------------------------------------------------------------------------
 
-export async function seal(
-  plaintext: string,
-  passphrase: string,
-  options: SealOptions = {},
-): Promise<Envelope> {
+/**
+ * Encrypt `plaintext` under `passphrase` and return a self-describing envelope.
+ *
+ * The work factor is not a parameter, and that is the whole point. A caller
+ * cannot ask for a cheaper one, because in practice the caller is a CLI flag,
+ * a config file, or a re-seal copying the params out of the envelope it just
+ * opened — and every one of those is a route by which a vault silently becomes
+ * cheaper to crack offline while every other test still passes. There is no
+ * options argument to forward such a value into. If the cost ever has to
+ * change, it changes here, in `DEFAULT_KDF`, for everyone at once.
+ */
+export async function seal(plaintext: Buffer, passphrase: string): Promise<Envelope> {
   // A caller bug, not a damaged file: say so with the ordinary JS error rather
   // than sending someone off to inspect a vault that is perfectly intact.
-  if (typeof plaintext !== 'string') {
-    throw new TypeError('seal(): plaintext must be a string');
+  if (!Buffer.isBuffer(plaintext)) {
+    throw new TypeError('seal(): plaintext must be a Buffer');
   }
   if (typeof passphrase !== 'string') {
     throw new TypeError('seal(): passphrase must be a string');
   }
 
   const salt = randomBytes(SALT_BYTES);
+  // Built from DEFAULT_KDF and nothing else, then run through the same gate a
+  // file's parameters face — so the constants above can never drift out of the
+  // range this module is willing to read back.
   const params = validateKdfParams({
     algorithm: DEFAULT_KDF.algorithm,
-    n: options.kdf?.n ?? DEFAULT_KDF.n,
-    r: options.kdf?.r ?? DEFAULT_KDF.r,
-    p: options.kdf?.p ?? DEFAULT_KDF.p,
+    n: DEFAULT_KDF.n,
+    r: DEFAULT_KDF.r,
+    p: DEFAULT_KDF.p,
     keyLength: DEFAULT_KDF.keyLength,
     salt: salt.toString('base64'),
   });
@@ -408,7 +439,7 @@ export async function seal(
     const aes = createCipheriv(CIPHER_ALGORITHM, key, iv, { authTagLength: AUTH_TAG_BYTES });
     aes.setAAD(associatedData(ENVELOPE_VERSION, params));
 
-    const ciphertext = Buffer.concat([aes.update(plaintext, 'utf8'), aes.final()]);
+    const ciphertext = Buffer.concat([aes.update(plaintext), aes.final()]);
     const authTag = aes.getAuthTag();
 
     return {
@@ -433,7 +464,13 @@ export async function seal(
   }
 }
 
-export async function open(envelope: Envelope, passphrase: string): Promise<string> {
+/**
+ * Decrypt an envelope and return the exact bytes that were sealed.
+ *
+ * `envelope` is untrusted: it is whatever was on disk. Nothing here assumes it
+ * came from `seal`.
+ */
+export async function open(envelope: Envelope, passphrase: string): Promise<Buffer> {
   if (typeof passphrase !== 'string') {
     throw new TypeError('open(): passphrase must be a string');
   }
@@ -489,7 +526,10 @@ export async function open(envelope: Envelope, passphrase: string): Promise<stri
       throw new WrongPassphraseError();
     }
 
-    return plaintext.toString('utf8');
+    // Bytes out, exactly as they went in. Decoding here would be lossy for
+    // anything that is not valid UTF-8, and this layer has no business
+    // deciding that a vault's contents are text.
+    return plaintext;
   } finally {
     wipe(key);
   }
