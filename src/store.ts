@@ -22,50 +22,31 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import * as nodeFsPromises from 'node:fs/promises';
 
+// The shared error taxonomy and types now live in one module. They are
+// re-exported here so this module's public surface is unchanged for every
+// caller and test that imported them from this file.
+import {
+  VaultError,
+  VaultNotFoundError,
+  VaultCorruptError,
+  UnsafeVaultPathError,
+} from './types.ts';
+
+export {
+  VaultError,
+  VaultNotFoundError,
+  VaultCorruptError,
+  UnsafeVaultPathError,
+};
+
+
 // ---------------------------------------------------------------------------
 // Errors (local stand-in for src/types.ts -- see module comment above)
 // ---------------------------------------------------------------------------
 
-export abstract class VaultError extends Error {
-  abstract readonly code: string;
-  abstract readonly exitCode: number;
 
-  protected constructor(message: string) {
-    super(message);
-    this.name = new.target.name;
-    Error.captureStackTrace?.(this, new.target);
-  }
-}
 
-/** The vault file does not exist at the resolved path. */
-export class VaultNotFoundError extends VaultError {
-  readonly code = 'VAULT_NOT_FOUND';
-  readonly exitCode = 6;
 
-  constructor(filePath: string) {
-    super(`Vault file not found: ${filePath}`);
-  }
-}
-
-/** The vault file exists but is not well-formed JSON, or not an envelope shape. */
-export class VaultCorruptError extends VaultError {
-  readonly code = 'VAULT_CORRUPT';
-  readonly exitCode = 3;
-
-  constructor(detail: string) {
-    super(`Vault file is not readable: ${detail}`);
-  }
-}
-
-/** The target path exists and is a symlink; refuse to write through it. */
-export class UnsafeVaultPathError extends VaultError {
-  readonly code = 'UNSAFE_VAULT_PATH';
-  readonly exitCode = 3;
-
-  constructor(filePath: string) {
-    super(`Refusing to write through a symlink: ${filePath}`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Types

@@ -24,6 +24,22 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
 
+// The shared error taxonomy and types now live in one module. They are
+// re-exported here so this module's public surface is unchanged for every
+// caller and test that imported them from this file.
+import {
+  VaultError,
+  WrongPassphraseError,
+  VaultCorruptError,
+} from './types.ts';
+
+export {
+  VaultError,
+  WrongPassphraseError,
+  VaultCorruptError,
+};
+
+
 // ---------------------------------------------------------------------------
 // Envelope format
 // ---------------------------------------------------------------------------
@@ -126,42 +142,8 @@ const MAX_KDF_MEMORY_BYTES = 256 * 1024 * 1024;
 // Errors
 // ---------------------------------------------------------------------------
 
-export abstract class VaultError extends Error {
-  abstract readonly code: string;
-  abstract readonly exitCode: number;
 
-  protected constructor(message: string) {
-    super(message);
-    this.name = new.target.name;
-    Error.captureStackTrace?.(this, new.target);
-  }
-}
 
-/**
- * Authentication failed. The passphrase does not derive a key that opens this
- * envelope — which also happens when the ciphertext has been altered. The
- * message deliberately commits to neither explanation.
- */
-export class WrongPassphraseError extends VaultError {
-  readonly code = 'WRONG_PASSPHRASE';
-  readonly exitCode = 2;
-
-  constructor(
-    message = 'passphrase incorrect, or the vault file has been modified',
-  ) {
-    super(message);
-  }
-}
-
-/** The envelope is not a well-formed, in-range vault. */
-export class VaultCorruptError extends VaultError {
-  readonly code = 'VAULT_CORRUPT';
-  readonly exitCode = 3;
-
-  constructor(detail: string) {
-    super(`Vault file is not readable: ${detail}`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Untrusted-input helpers

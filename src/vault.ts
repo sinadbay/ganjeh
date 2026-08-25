@@ -28,128 +28,64 @@
  * either by being written or by being decoded from a crafted document.
  */
 
+// The shared error taxonomy and types now live in one module. They are
+// re-exported here so this module's public surface is unchanged for every
+// caller and test that imported them from this file.
+import {
+  VaultError,
+  VaultCorruptError,
+  InvalidNameError,
+  InvalidSecretError,
+  EntryExistsError,
+  EntryNotFoundError,
+  describeUntrusted,
+  NAME_PATTERN,
+} from './types.ts';
+import type {
+  VaultEntry,
+  VaultData,
+  AddEntryOptions,
+} from './types.ts';
+
+export {
+  VaultError,
+  VaultCorruptError,
+  InvalidNameError,
+  InvalidSecretError,
+  EntryExistsError,
+  EntryNotFoundError,
+  describeUntrusted,
+  NAME_PATTERN,
+};
+export type {
+  VaultEntry,
+  VaultData,
+  AddEntryOptions,
+};
+
+
 // ---------------------------------------------------------------------------
 // Errors (local stand-in for src/types.ts -- see module comment above)
 // ---------------------------------------------------------------------------
 
-export abstract class VaultError extends Error {
-  abstract readonly code: string;
-  abstract readonly exitCode: number;
 
-  protected constructor(message: string) {
-    super(message);
-    this.name = new.target.name;
-    Error.captureStackTrace?.(this, new.target);
-  }
-}
 
-/** The plaintext document is not well-formed, or exceeds the size bound. */
-export class VaultCorruptError extends VaultError {
-  readonly code = 'VAULT_CORRUPT';
-  readonly exitCode = 3;
 
-  constructor(detail: string) {
-    super(`Vault file is not readable: ${detail}`);
-  }
-}
 
-/** An entry name does not satisfy the allowed name grammar. */
-export class InvalidNameError extends VaultError {
-  readonly code = 'INVALID_NAME';
-  readonly exitCode = 1;
 
-  constructor(name: string) {
-    super(
-      `invalid entry name ${describeUntrusted(name)}: names must match ` +
-        `${NAME_PATTERN} (1-128 characters, no ".." segments, and not the ` +
-        `reserved name "__proto__", "constructor" or "prototype")`,
-    );
-  }
-}
-
-/** A secret is empty or exceeds the maximum stored size. */
-export class InvalidSecretError extends VaultError {
-  readonly code = 'INVALID_SECRET';
-  readonly exitCode = 1;
-
-  constructor(message: string) {
-    super(message);
-  }
-}
-
-/** `addEntry` was called for a name that already exists without `overwrite`. */
-export class EntryExistsError extends VaultError {
-  readonly code = 'ENTRY_EXISTS';
-  readonly exitCode = 5;
-
-  constructor(name: string) {
-    super(`entry "${name}" already exists (use --force to overwrite)`);
-  }
-}
-
-/**
- * `getEntry` was called for a name that is not in the vault.
- *
- * Unlike `EntryExistsError`, `name` here has not necessarily passed
- * `assertValidName` -- `getEntry` accepts any lookup key and simply reports
- * absence, so a caller can reach this constructor with a name containing
- * control characters or ANSI escapes. `describeUntrusted` keeps those out of
- * the message this becomes once caught and printed.
- */
-export class EntryNotFoundError extends VaultError {
-  readonly code = 'ENTRY_NOT_FOUND';
-  readonly exitCode = 4;
-
-  constructor(name: string) {
-    super(`entry ${describeUntrusted(name)} not found`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface VaultEntry {
-  readonly secret: string;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
 
-export interface VaultData {
-  readonly entries: Record<string, VaultEntry>;
-}
 
-export interface AddEntryOptions {
-  readonly overwrite?: boolean;
-  readonly now?: () => string;
-}
 
 // ---------------------------------------------------------------------------
 // Untrusted-input helpers
 // ---------------------------------------------------------------------------
 
-/** Cap on how much of an untrusted value is quoted back in an error message. */
-const MAX_ECHOED_VALUE_CHARS = 60;
 
-/**
- * Render an untrusted string for an error message.
- *
- * Entry names are exactly the kind of value this guards against: a name is
- * rejected precisely because it may contain control characters or ANSI
- * escape sequences, so quoting it back verbatim would hand the same payload
- * to whatever prints the error -- a terminal, a log file. Control characters
- * are replaced and the result is capped before it is quoted.
- */
-function describeUntrusted(value: string): string {
-  const text = typeof value === 'string' ? value : String(value);
-  // eslint-disable-next-line no-control-regex
-  const printable = text.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
-  const clipped =
-    printable.length > MAX_ECHOED_VALUE_CHARS
-      ? `${printable.slice(0, MAX_ECHOED_VALUE_CHARS)}...`
-      : printable;
-  return JSON.stringify(clipped);
-}
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -159,7 +95,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 // Name and secret validation
 // ---------------------------------------------------------------------------
 
-const NAME_PATTERN = /^[A-Za-z0-9._@/-]{1,128}$/;
 
 /**
  * Property names that would let an entry act as (or masquerade as) an
@@ -254,8 +189,11 @@ export function addEntry(
   };
 
   const entries: Record<string, VaultEntry> = Object.create(null);
-  for (const key of Object.keys(data.entries)) {
-    entries[key] = data.entries[key];
+  // `Object.entries` rather than `Object.keys` plus a lookup: the value comes
+  // out already narrowed, so this copies without an index access the compiler
+  // has to be told is safe.
+  for (const [key, value] of Object.entries(data.entries)) {
+    entries[key] = value;
   }
   entries[name] = entry;
 
