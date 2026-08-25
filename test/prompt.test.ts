@@ -319,6 +319,13 @@ describe('t5-a1 shoulder-surf / terminal-recording resistance', () => {
 
     await promise;
     assert.doesNotMatch(output.text(), new RegExp(sentinel));
+
+    // The fake `output` never echoes typed input regardless of raw-mode
+    // state, so the assertion above holds even if raw mode were never
+    // entered. What actually suppresses echo on a real terminal is entering
+    // raw mode before reading and leaving it before returning -- assert that
+    // sequence explicitly so a build that drops `setRawMode` fails here.
+    assert.deepEqual(input.rawModeCalls, [true, false]);
   });
 });
 
