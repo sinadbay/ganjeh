@@ -21,9 +21,11 @@
  * `decodeVault` treats its input as hostile: it may be bytes a corrupted file
  * produced, or a document an attacker crafted to be imported. Every field is
  * type-checked before use, the document size is bounded before it is parsed,
- * and the three property names that can act as prototype-pollution vectors
- * (`__proto__`, `constructor`, `prototype`) are refused as entry names rather
- * than silently accepted or silently dropped.
+ * and every entry key is run through `assertValidName` -- the same grammar
+ * `addEntry` enforces on the write path -- so a key containing control bytes,
+ * ANSI escapes, a ".." segment, or one of the reserved prototype-pollution
+ * names (`__proto__`, `constructor`, `prototype`) cannot reach `entries`
+ * either by being written or by being decoded from a crafted document.
  */
 
 // ---------------------------------------------------------------------------
@@ -59,7 +61,8 @@ export class InvalidNameError extends VaultError {
   constructor(name: string) {
     super(
       `invalid entry name ${describeUntrusted(name)}: names must match ` +
-        `${NAME_PATTERN} (1-128 characters, no ".." segments)`,
+        `${NAME_PATTERN} (1-128 characters, no ".." segments, and not the ` +
+        `reserved name "__proto__", "constructor" or "prototype")`,
     );
   }
 }
@@ -158,6 +161,19 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 const NAME_PATTERN = /^[A-Za-z0-9._@/-]{1,128}$/;
 
+/**
+ * Property names that would let an entry act as (or masquerade as) an
+ * `Object.prototype` vector if it were ever placed on a prototype-carrying
+ * object. `addEntry`'s own `entries` record -- and `decodeVault`'s -- are
+ * built on `Object.create(null)`, which already denies these keys their
+ * special meaning there, but both the write and the read path refuse the
+ * name outright rather than relying on that alone: an entry named
+ * `__proto__` that `addEntry` accepted would be a document `decodeVault`
+ * could never read back, since it applies the same grammar. Rejecting it at
+ * the source keeps the write and read paths in agreement.
+ */
+const FORBIDDEN_ENTRY_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Bytes, not characters -- a UTF-8 secret near the limit must be measured, not counted. */
 const MAX_SECRET_BYTES = 8192;
 
@@ -169,11 +185,18 @@ const MAX_SECRET_BYTES = 8192;
  * are rejected on top of the class check because an entry name that reads as
  * a directory-traversal attempt has no legitimate reason to exist here, even
  * though this build stores everything in a single JSON document rather than
- * one file per entry.
+ * one file per entry. The character class alone would also accept
+ * "__proto__", "constructor" and "prototype" -- ordinary identifier-looking
+ * strings -- so those are rejected by name on top of the class check too.
+ *
+ * `decodeVault` runs every entry key from an untrusted document through this
+ * same function, so it is also the gate that keeps control bytes, ANSI
+ * escapes and oversized names out of `listEntries` output for a vault that
+ * was decoded rather than built up through `addEntry`.
  */
 export function assertValidName(name: string): void {
   const value = typeof name === 'string' ? name : '';
-  if (!NAME_PATTERN.test(value) || value.includes('..')) {
+  if (!NAME_PATTERN.test(value) || value.includes('..') || FORBIDDEN_ENTRY_KEYS.has(value)) {
     throw new InvalidNameError(name);
   }
 }
@@ -263,15 +286,6 @@ export function listEntries(data: VaultData): string[] {
  */
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 
-/**
- * Property names that would let a crafted document reach up to
- * `Object.prototype` (or masquerade as one) if used as an entry name.
- * `decodeVault` builds its `entries` record on `Object.create(null)`, which
- * already denies these keys their special meaning, but the document is
- * refused outright rather than silently accepted with a dead-letter key.
- */
-const FORBIDDEN_ENTRY_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
 export function encodeVault(data: VaultData): Buffer {
   return Buffer.from(JSON.stringify(data), 'utf8');
 }
@@ -301,8 +315,13 @@ export function decodeVault(buf: Buffer): VaultData {
 
   const entries: Record<string, VaultEntry> = Object.create(null);
   for (const key of Object.keys(entriesRaw)) {
-    if (FORBIDDEN_ENTRY_KEYS.has(key)) {
-      throw new VaultCorruptError(`entry name ${JSON.stringify(key)} is not allowed`);
+    try {
+      assertValidName(key);
+    } catch (err) {
+      if (err instanceof InvalidNameError) {
+        throw new VaultCorruptError(`entry name ${describeUntrusted(key)} is not a valid entry name`);
+      }
+      throw err;
     }
     entries[key] = decodeEntry(entriesRaw[key], key);
   }
