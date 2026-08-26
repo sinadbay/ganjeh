@@ -1,0 +1,12 @@
+# Defense-in-depth: package.json's "files": ["dist"] is the real allowlist.
+# This backstops it in case that field is ever loosened or removed.
+src/
+test/
+graphify-out/
+*.test.ts
+tsconfig.json
+.gitattributes
+.gitignore
+.npmrc
+.env
+*.log
