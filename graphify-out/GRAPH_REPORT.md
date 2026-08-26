@@ -1,16 +1,16 @@
-# Graph Report - t6-cli  (2026-08-25)
+# Graph Report - t6-cli  (2026-08-26)
 
 ## Corpus Check
-- 21 files · ~21,961 words
+- 21 files · ~22,905 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 228 nodes · 440 edges · 10 communities (8 shown, 2 thin omitted)
+- 230 nodes · 442 edges · 10 communities (9 shown, 1 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `cb0728bb`
+- Built from commit: `9eaa6ce4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -53,7 +53,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (10 total, 2 thin omitted)
+## Communities (10 total, 1 thin omitted)
 
 ### Community 0 - "src/vault.ts"
 Cohesion: 0.12
@@ -87,20 +87,24 @@ Nodes (27): AddParsed, bridgedCipher(), buildRunDeps(), CliUsageError, CommandDe
 Cohesion: 0.18
 Nodes (4): CommandCipher, EncryptedEnvelope, makeSink(), runWith()
 
+### Community 9 - "cli.e2e.test.ts"
+Cohesion: 0.29
+Nodes (3): BIN_PATH, CliResult, exec
+
 ## Knowledge Gaps
-- **47 isolated node(s):** `name`, `version`, `private`, `description`, `type` (+42 more)
+- **48 isolated node(s):** `name`, `version`, `private`, `description`, `type` (+43 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `VaultError` connect `src/vault.ts` to `crypto.ts`, `store.ts`, `prompt.ts`, `cli.ts`?**
-  _High betweenness centrality (0.148) - this node is a cross-community bridge._
+  _High betweenness centrality (0.145) - this node is a cross-community bridge._
 - **Why does `createStore()` connect `store.ts` to `cli.ts`?**
   _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `name`, `version`, `private` to the rest of the system?**
-  _47 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _48 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `src/vault.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.12051282051282051 - nodes in this community are weakly interconnected._
 - **Should `crypto.ts` be split into smaller, more focused modules?**

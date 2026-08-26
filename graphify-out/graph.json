@@ -599,7 +599,7 @@
       "file_type": "code",
       "norm_label": "cliresult",
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L34"
+      "source_location": "L53"
     },
     {
       "id": "src_commands_add_runadd",
@@ -1847,7 +1847,7 @@
       "file_type": "code",
       "norm_label": "makefakecipher()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L89"
+      "source_location": "L95"
     },
     {
       "id": "test_commands_test_makefakeprompt",
@@ -1859,7 +1859,7 @@
       "file_type": "code",
       "norm_label": "makefakeprompt()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L113"
+      "source_location": "L119"
     },
     {
       "id": "test_commands_test_makefakestore",
@@ -1871,7 +1871,7 @@
       "file_type": "code",
       "norm_label": "makefakestore()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L58"
+      "source_location": "L64"
     },
     {
       "id": "test_commands_test_makesink",
@@ -1883,7 +1883,7 @@
       "file_type": "code",
       "norm_label": "makesink()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L40"
+      "source_location": "L46"
     },
     {
       "id": "test_commands_test_makethrowingopencipher",
@@ -1895,7 +1895,7 @@
       "file_type": "code",
       "norm_label": "makethrowingopencipher()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L105"
+      "source_location": "L111"
     },
     {
       "id": "test_commands_test_makeuntouchableprompt",
@@ -1907,7 +1907,7 @@
       "file_type": "code",
       "norm_label": "makeuntouchableprompt()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L130"
+      "source_location": "L136"
     },
     {
       "id": "test_commands_test_makeuntouchablestore",
@@ -1919,7 +1919,7 @@
       "file_type": "code",
       "norm_label": "makeuntouchablestore()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L80"
+      "source_location": "L86"
     },
     {
       "id": "test_commands_test_runwith",
@@ -1931,7 +1931,7 @@
       "file_type": "code",
       "norm_label": "runwith()",
       "source_file": "test/commands.test.ts",
-      "source_location": "L138"
+      "source_location": "L144"
     },
     {
       "id": "test_e2e_cli_e2e_test_runcli",
@@ -1943,7 +1943,19 @@
       "file_type": "code",
       "norm_label": "runcli()",
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L40"
+      "source_location": "L59"
+    },
+    {
+      "id": "test_e2e_cli_e2e_test_shquote",
+      "label": "shQuote()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "cli.e2e.test.ts",
+      "file_type": "code",
+      "norm_label": "shquote()",
+      "source_file": "test/e2e/cli.e2e.test.ts",
+      "source_location": "L97"
     },
     {
       "id": "test_e2e_cli_e2e_test_withtmpdir",
@@ -1955,7 +1967,7 @@
       "file_type": "code",
       "norm_label": "withtmpdir()",
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L67"
+      "source_location": "L86"
     },
     {
       "id": "src_commands_add",
@@ -2716,7 +2728,18 @@
       "file_type": "code",
       "norm_label": "bin_path",
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L32"
+      "source_location": "L51"
+    },
+    {
+      "id": "test_e2e_cli_e2e_test_exec",
+      "label": "exec",
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "cli.e2e.test.ts",
+      "file_type": "code",
+      "norm_label": "exec",
+      "source_file": "test/e2e/cli.e2e.test.ts",
+      "source_location": "L49"
     }
   ],
   "links": [
@@ -3761,7 +3784,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "test/commands.test.ts",
-      "source_location": "L139",
+      "source_location": "L145",
       "weight": 1.0
     },
     {
@@ -3773,7 +3796,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "test/commands.test.ts",
-      "source_location": "L141",
+      "source_location": "L147",
       "weight": 1.0
     },
     {
@@ -4505,7 +4528,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L29",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -4517,7 +4540,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L30",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -4529,7 +4552,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L30",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -4541,7 +4564,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L30",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -4553,7 +4576,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L31",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -4565,7 +4588,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L31",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -4577,7 +4600,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L32",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -4589,7 +4612,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L32",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -4601,7 +4624,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L32",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -4613,7 +4636,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L33",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -4625,7 +4648,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L33",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -4637,7 +4660,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L33",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -4649,7 +4672,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L33",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -5309,7 +5332,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L30",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -5321,7 +5344,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L31",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -5333,7 +5356,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L32",
+      "source_location": "L38",
       "weight": 1.0
     },
     {
@@ -5345,7 +5368,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/commands.test.ts",
-      "source_location": "L33",
+      "source_location": "L39",
       "weight": 1.0
     },
     {
@@ -6849,7 +6872,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L105",
+      "source_location": "L111",
       "weight": 1.0
     },
     {
@@ -6860,7 +6883,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L113",
+      "source_location": "L119",
       "weight": 1.0
     },
     {
@@ -6871,7 +6894,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L130",
+      "source_location": "L136",
       "weight": 1.0
     },
     {
@@ -6882,7 +6905,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L138",
+      "source_location": "L144",
       "weight": 1.0
     },
     {
@@ -6893,7 +6916,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L40",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -6904,7 +6927,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L58",
+      "source_location": "L64",
       "weight": 1.0
     },
     {
@@ -6915,7 +6938,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L80",
+      "source_location": "L86",
       "weight": 1.0
     },
     {
@@ -6926,7 +6949,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/commands.test.ts",
-      "source_location": "L89",
+      "source_location": "L95",
       "weight": 1.0
     },
     {
@@ -6997,13 +7020,24 @@
     },
     {
       "source": "test_e2e_cli_e2e_test",
+      "target": "test_e2e_cli_e2e_test_exec",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "test/e2e/cli.e2e.test.ts",
+      "source_location": "L49",
+      "weight": 1.0
+    },
+    {
+      "source": "test_e2e_cli_e2e_test",
       "target": "test_e2e_cli_e2e_test_bin_path",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L32",
+      "source_location": "L51",
       "weight": 1.0
     },
     {
@@ -7014,7 +7048,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L34",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -7025,7 +7059,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L40",
+      "source_location": "L59",
       "weight": 1.0
     },
     {
@@ -7036,7 +7070,18 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/e2e/cli.e2e.test.ts",
-      "source_location": "L67",
+      "source_location": "L86",
+      "weight": 1.0
+    },
+    {
+      "source": "test_e2e_cli_e2e_test",
+      "target": "test_e2e_cli_e2e_test_shquote",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "test/e2e/cli.e2e.test.ts",
+      "source_location": "L97",
       "weight": 1.0
     },
     {
@@ -7803,5 +7848,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "cb0728bbb36842dde193a9e8b6f10642d030882e"
+  "built_at_commit": "9eaa6ce4d3aa7f12d291a8c2f33c52b031bd749a"
 }
