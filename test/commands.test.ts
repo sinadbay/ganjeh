@@ -16,6 +16,12 @@
  *   t6-a5  an unexpected internal exception prints one generic line and no
  *          stack unless VAULT_DEBUG=1, and never echoes the passphrase
  *
+ * Also covered here, beyond the labeled scenarios above, are the two other
+ * exit codes the definition of done names explicitly: `get` on a name
+ * missing from an existing vault (exit 4) and `add` on a name that already
+ * exists without `--force` (exit 5), plus `list` against a nonexistent
+ * vault (exit 6, the same path as t6-s5 but through the `list` command).
+ *
  * These are unit tests: `store`/`cipher`/`prompt` are all fakes injected
  * through `run`'s second parameter, so nothing here touches a real file,
  * terminal or subprocess. End-to-end behaviour against a real vault file and
@@ -255,6 +261,64 @@ describe('t6-s5 get with no vault file present', () => {
 
     assert.equal(result.code, 6);
     assert.match(result.stderr, /no vault found/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DoD — the remaining exit codes named in the definition of done
+// (`get missing-name` -> 4, `add` an existing name without `--force` -> 5,
+// `list` against a nonexistent vault -> 6) each need a fast, isolated
+// CLI-level test alongside t6-s2/t6-s5 above, not only the slower e2e
+// coverage in test/e2e/cli.e2e.test.ts (t6-f2 covers exit 5 end to end;
+// nothing before this exercised exit 4 at the CLI level at all, and exit 6
+// was only ever exercised through `get`, never through `list`).
+// ---------------------------------------------------------------------------
+
+describe('DoD: get on a name absent from an existing vault', () => {
+  test('exit code 4, stderr contains "not found"', async () => {
+    const plaintext = encodeVault(emptyVault());
+    const store = makeFakeStore({ version: 1, plaintextB64: plaintext.toString('base64') });
+    const cipher = makeFakeCipher();
+    const prompt = makeFakePrompt({ readHidden: 'passphrase1' });
+
+    const result = await runWith(['get', 'missing-name'], { store, cipher, prompt });
+
+    assert.equal(result.code, 4);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /not found/);
+  });
+});
+
+describe('DoD: add an existing name without --force', () => {
+  test('exit code 5, stderr contains "already exists", and nothing is saved', async () => {
+    let vault = emptyVault();
+    vault = addEntry(vault, 'db', 'original-secret', { now: () => '2026-01-01T00:00:00.000Z' });
+    const plaintext = encodeVault(vault);
+
+    const store = makeFakeStore({ version: 1, plaintextB64: plaintext.toString('base64') });
+    const cipher = makeFakeCipher();
+    const prompt = makeFakePrompt({ readHidden: 'passphrase1', readSecret: 'new-secret' });
+
+    const result = await runWith(['add', 'db'], { store, cipher, prompt });
+
+    assert.equal(result.code, 5);
+    assert.match(result.stderr, /already exists/);
+    assert.equal(store.saveCalls.length, 0);
+  });
+});
+
+describe('DoD: list against a nonexistent vault file', () => {
+  test('exit code 6, stderr tells the user to run "vault add" first', async () => {
+    const store = makeFakeStore(undefined);
+    const cipher = makeFakeCipher();
+    const prompt = makeFakePrompt({ readHidden: 'whatever' });
+
+    const result = await runWith(['list'], { store, cipher, prompt });
+
+    assert.equal(result.code, 6);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /no vault found/);
+    assert.match(result.stderr, /vault add/);
   });
 });
 

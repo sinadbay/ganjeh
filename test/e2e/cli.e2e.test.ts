@@ -16,6 +16,22 @@
  *   t6-a4  a permission-denied write exits 1 with 'vault: permission
  *          denied', leaves no partial file, and leaks no secret
  *
+ * Also covered here, beyond the labeled scenarios above:
+ *   - `get` on a name missing from an existing vault -> exit 4 (the DoD names
+ *     this alongside exit 5 and 6; t6-f2 already covers exit 5 end to end,
+ *     this fills in exit 4 the same way)
+ *   - `list` against a nonexistent vault file -> exit 6, telling the user to
+ *     run `vault add` first (the DoD names this against `list` specifically;
+ *     t6-s5's unit test and the `DoD: list against a nonexistent vault file`
+ *     unit test cover the same path with a fake store, this is the real
+ *     filesystem/spawned-process version)
+ *   - a secret at the 8192-byte maximum (see t4-s7) round-trips through a
+ *     real shell pipe (`vault get x | wc -c`) with no byte lost; `bin/vault.ts`
+ *     calls `process.exit()` right after `run()` resolves, and `process.exit`
+ *     is documented to be able to cut off stdout writes still in flight to a
+ *     pipe, so this exercises the DoD's `vault get x | wc -c` line at the
+ *     largest secret size the vault accepts rather than taking it on faith
+ *
  * These spawn a real `node` child process running `src/bin/vault.ts` (there
  * is no build step in this repository -- see the PR description) against a
  * real temporary vault file, exactly the way a user would invoke `vault`.
@@ -23,11 +39,14 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, exec as execCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdtemp, rm, readFile, stat, chmod, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const exec = promisify(execCallback);
 
 const BIN_PATH = fileURLToPath(new URL('../../src/bin/vault.ts', import.meta.url));
 
@@ -72,6 +91,11 @@ async function withTmpDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
     await chmod(dir, 0o700).catch(() => {});
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/** POSIX single-quote a value for interpolation into a shell command string. */
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +306,74 @@ describe('t6-a4 --file into a directory the user cannot write to', () => {
       } finally {
         await chmod(lockedParent, 0o700);
       }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DoD — get on a name absent from an existing vault
+// ---------------------------------------------------------------------------
+
+describe('DoD: get missing-name against an existing vault', () => {
+  test('exit code 4, empty stdout, stderr contains "not found"', async () => {
+    await withTmpDir(async (dir) => {
+      const vaultFile = path.join(dir, 'v.json');
+      const env = { VAULT_FILE: vaultFile };
+
+      const added = await runCli(['add', 'github', '--stdin'], { env, input: 'passphrase1\nghp_abc123' });
+      assert.equal(added.code, 0, `add stderr: ${added.stderr}`);
+
+      const result = await runCli(['get', 'missing-name'], { env, input: 'passphrase1\n' });
+
+      assert.equal(result.code, 4);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /not found/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DoD — list against a nonexistent vault file
+// ---------------------------------------------------------------------------
+
+describe('DoD: list against a nonexistent vault file', () => {
+  test('exit code 6, stderr tells the user to run "vault add" first', async () => {
+    await withTmpDir(async (dir) => {
+      const vaultFile = path.join(dir, 'v.json');
+      const env = { VAULT_FILE: vaultFile };
+
+      const result = await runCli(['list'], { env, input: 'whatever\n' });
+
+      assert.equal(result.code, 6);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /no vault found/);
+      assert.match(result.stderr, /vault add/);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DoD — `vault get x | wc -c` equals the secret length + 1, at the maximum
+// secret size, through a real shell pipe rather than Node's own stream
+// listeners (see the module comment: `bin/vault.ts` calls `process.exit()`
+// right after `run()` resolves, which can in principle race a still-flushing
+// stdout write to a pipe).
+// ---------------------------------------------------------------------------
+
+describe('DoD: get x | wc -c at the maximum secret size', () => {
+  test('an 8192-byte secret round-trips through a real shell pipe with no byte lost', async () => {
+    await withTmpDir(async (dir) => {
+      const vaultFile = path.join(dir, 'v.json');
+      const env = { VAULT_FILE: vaultFile };
+      const secret = 'x'.repeat(8192);
+
+      const added = await runCli(['add', 'big', '--stdin'], { env, input: `passphrase1\n${secret}` });
+      assert.equal(added.code, 0, `add stderr: ${added.stderr}`);
+
+      const command = `printf 'passphrase1\\n' | ${shQuote(process.execPath)} ${shQuote(BIN_PATH)} get big | wc -c`;
+      const { stdout } = await exec(command, { shell: '/bin/bash', env: { ...process.env, ...env } });
+
+      assert.equal(Number.parseInt(stdout.trim(), 10), secret.length + 1);
     });
   });
 });
