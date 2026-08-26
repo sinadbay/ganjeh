@@ -21,27 +21,23 @@
  * CHANGELOG.md, LICENSE, .npmignore, this file) can make those tests pass, because the source they
  * exercise does not exist in this branch's history.
  *
- * Separately, and confirmed by actually running `tsc` against this repository's tsconfig.json: a
- * `tsc` build of this codebase cannot produce a working dist/bin/vault.js even once that source
- * lands. tsconfig.json sets `allowImportingTsExtensions: true` together with `noEmit: true`.
- * TypeScript only permits that combination when noEmit (or emitDeclarationOnly) stays set — forcing
- * `noEmit: false` from the build script trips `TS5096: Option 'allowImportingTsExtensions' can only
- * be used when either 'noEmit' or 'emitDeclarationOnly' is set`. Disabling
- * `allowImportingTsExtensions` instead avoids that error but trips a different one, `TS5097`, on
- * every relative `./foo.ts` import already in src/ (crypto.ts, store.ts, vault.ts all import this
- * way). And even past both of those, a bare `tsc` emit does not rewrite those relative imports from
- * `.ts` to `.js` — verified by compiling src/ from the t6 branch: the emitted dist/bin/vault.js still
- * contained `import { run } from '../cli.ts'`, which crashes at run time with
- * `ERR_MODULE_NOT_FOUND: Cannot find module '.../cli.ts'` because only cli.js exists on disk.
- * TypeScript's fix for this is `rewriteRelativeImportExtensions: true`, available from TypeScript
- * 5.7; this repository pins `typescript@^5.6.0`. That fix lives in tsconfig.json, which is not one of
- * this node's owned paths. See the PR description for the full reproduction and recommended next
- * steps.
+ * A previous version of this file also documented a second, independent problem: `tsc -p
+ * tsconfig.json --noEmit false` tripped `TS5096` because tsconfig.json sets
+ * `allowImportingTsExtensions: true` together with `noEmit: true`, and TypeScript only permits that
+ * combination while noEmit (or emitDeclarationOnly) stays set. That is now fixed, entirely within
+ * this node's owned package.json, without touching tsconfig.json: the build script also passes
+ * `--rewriteRelativeImportExtensions` on the tsc command line (a flag, not a tsconfig field, so it
+ * does not require editing tsconfig.json), and the `typescript` devDependency is raised to `^5.7.0`,
+ * the first version that supports it. That flag both permits the `allowImportingTsExtensions` +
+ * emit combination and rewrites relative `./foo.ts` imports to `./foo.js` in the emitted output —
+ * verified below by actually invoking the build's tsc step against this repo's existing src/ modules
+ * and inspecting the emitted JS. The "build emits valid JS" test below is the regression test for
+ * this: it fails again if the flag or the devDependency floor regresses.
  *
- * The five scenarios below that depend on dist/bin/vault.js are written exactly as the brief
- * describes them and are expected to fail for the reasons above, not because of a defect in this
- * node's own files. They are left in place, unskipped and unweakened, so the gap stays visible in
- * `npm test` rather than being hidden.
+ * The five scenarios below that depend on dist/bin/vault.js are still written exactly as the brief
+ * describes them and are still expected to fail, but now only for the missing-source reason above,
+ * not because of a defect in this node's own files. They are left in place, unskipped and
+ * unweakened, so the gap stays visible in `npm test` rather than being hidden.
  */
 
 import { test, describe } from 'node:test';
@@ -116,6 +112,31 @@ describe('package.json fields a publish depends on (t7-s5)', () => {
     const pkg = await readPackageJson();
     assert.equal(pkg.license, 'MIT');
     assert.equal(pkg.private, undefined, 'package.json marks the package private');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// regression — the build's tsc step must not trip TS5096/TS5097
+// ---------------------------------------------------------------------------
+
+describe('build emits valid JS without TS5096/TS5097 (regression)', () => {
+  test('the build script\'s tsc invocation compiles src/ and rewrites .ts imports to .js', async () => {
+    await withTmpDir(async (tmp) => {
+      const outDir = path.join(tmp, 'dist');
+      const pkg = await readPackageJson();
+      const tscStep = pkg.scripts.build.split('&&')[0].trim();
+      const args = tscStep.split(/\s+/).slice(1);
+      const outDirFlagIndex = args.indexOf('--outDir');
+      assert.ok(outDirFlagIndex !== -1, 'build script has no --outDir flag to redirect');
+      args[outDirFlagIndex + 1] = outDir;
+
+      const tscBin = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsc');
+      await execFileAsync(tscBin, args, { cwd: REPO_ROOT });
+
+      const emitted = await fs.readFile(path.join(outDir, 'store.js'), 'utf8');
+      assert.doesNotMatch(emitted, /from ["'][^"']*\.ts["']/, 'emitted JS still imports a .ts path');
+      assert.match(emitted, /from ["']\.\/types\.js["']/, 'emitted JS does not import the rewritten .js path');
+    });
   });
 });
 

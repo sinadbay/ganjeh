@@ -18,14 +18,14 @@
     "vault": "dist/bin/vault.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit false --outDir dist && chmod +x dist/bin/vault.js",
+    "build": "tsc -p tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir dist && chmod +x dist/bin/vault.js",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "typescript": "^5.7.0",
     "@types/node": "^22.7.0"
   }
 }
