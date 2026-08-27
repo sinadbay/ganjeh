@@ -124,7 +124,9 @@ describe('build emits valid JS without TS5096/TS5097 (regression)', () => {
     await withTmpDir(async (tmp) => {
       const outDir = path.join(tmp, 'dist');
       const pkg = await readPackageJson();
-      const tscStep = pkg.scripts.build.split('&&')[0].trim();
+      const steps = pkg.scripts.build.split('&&').map((step) => step.trim());
+      const tscStep = steps.find((step) => step.startsWith('tsc '));
+      assert.ok(tscStep, 'build script has no tsc step');
       const args = tscStep.split(/\s+/).slice(1);
       const outDirFlagIndex = args.indexOf('--outDir');
       assert.ok(outDirFlagIndex !== -1, 'build script has no --outDir flag to redirect');
