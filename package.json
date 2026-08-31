@@ -1,19 +1,31 @@
 {
   "name": "ganjeh",
   "version": "0.1.0",
-  "private": true,
-  "description": "A command-line password vault.",
+  "description": "A command-line password vault: encrypt and retrieve local credentials with a passphrase.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sinadbay/ganjeh.git"
+  },
   "type": "module",
   "engines": {
-    "node": ">=22.6"
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "vault": "dist/bin/vault.js"
   },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir dist && chmod +x dist/bin/vault.js",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "typescript": "^5.7.0",
     "@types/node": "^22.7.0"
   }
 }
