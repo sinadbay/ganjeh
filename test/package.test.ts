@@ -40,7 +40,7 @@
  * unweakened, so the gap stays visible in `npm test` rather than being hidden.
  */
 
-import { test, describe } from 'node:test';
+import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -82,6 +82,31 @@ async function packDryRun() {
   const [entry] = JSON.parse(stdout);
   return entry;
 }
+
+// dist/ is a build artifact, not committed to the repository (see .npmignore's
+// comment: package.json's "files" field is the real allowlist, and a stale,
+// committed dist/ would drift from src/ the moment either changed without the
+// other). The tests below need a freshly built dist/ to inspect, so build it
+// once, here, before any of them run.
+//
+// This currently cannot fully succeed: the build script's final step chmods
+// dist/bin/vault.js executable, and that file cannot exist until
+// src/bin/vault.ts lands (see the module comment above). Tolerate exactly
+// that failure — verified by confirming its root cause is still the missing
+// source file, not a regression — so the tsc step's output (everything except
+// the CLI entry point) is still there for the tests that follow. Anything
+// else the build fails on is a real problem and must fail loudly here.
+before(async () => {
+  try {
+    await execFileAsync('npm', ['run', 'build'], { cwd: REPO_ROOT });
+  } catch (error) {
+    const stillMissing = !existsSync(path.join(REPO_ROOT, 'src', 'bin', 'vault.ts'));
+    assert.ok(
+      stillMissing,
+      `npm run build failed for a reason other than the missing CLI source:\n${error.stderr ?? error.message}`,
+    );
+  }
+});
 
 // ---------------------------------------------------------------------------
 // t7-s5 — package.json fields
