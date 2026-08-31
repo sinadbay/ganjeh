@@ -13,13 +13,24 @@
  *   t7-a3  no committed npm auth token, no CI publish workflow
  *
  * t7-s1, t7-s2, t7-s3, t7-f1 and t7-a1 need a real dist/bin/vault.js. This repository does not have
- * one yet: `src/bin/vault.ts`, `src/cli.ts`, `src/commands/*` and `src/prompt.ts` exist only on the
- * unmerged `keel/t5-prompt-terminal-passphrase-and-secret-input-no-` and
- * `keel/t6-cli-cli-wiring-vault-add-get-list-with-exit-` branches — not on this branch, and not on
- * `develop` either (checked with `git merge-base --is-ancestor <tip> HEAD`, and again against
- * `origin/develop`). No amount of change within this node's owned paths (package.json, README.md,
- * CHANGELOG.md, LICENSE, .npmignore, this file) can make those tests pass, because the source they
- * exercise does not exist in this branch's history.
+ * one yet: `src/bin/vault.ts`, `src/cli.ts` and `src/commands/*` exist only on the unmerged
+ * `keel/t6-cli-cli-wiring-vault-add-get-list-with-exit-` branch — not on this branch, and not on
+ * `develop` either (checked with `git ls-tree -r develop` and `git branch -a`; `src/prompt.ts`, from
+ * the sibling `keel/t5-...` node, *has* landed on `develop` already, so it is not part of this gap).
+ * No amount of change within this node's owned paths (package.json, README.md, CHANGELOG.md, LICENSE,
+ * .npmignore, this file) can make those tests pass, because the source they exercise does not exist
+ * in this branch's history. Two things follow from that, both raised in review and both worth being
+ * explicit about rather than "fixing" by editing around them:
+ *
+ *  - `package.json`'s `bin.vault: "dist/bin/vault.js"` looks wrong while that file can't be built, but
+ *    it is the value t7-s5 requires and the value publishing actually needs the moment t6 lands — the
+ *    defect is the missing merge, not this field. Reverting it would just trade a real, visible gap
+ *    for a silent, permanent one that no future merge would ever fix on its own. See the "safety net"
+ *    describe block below for why this can't accidentally get published in the meantime.
+ *  - CHANGELOG.md documents `vault add`/`get`/`list` because that is what the 0.1.0 release this node
+ *    prepares is scoped to ship (per the brief's own "Already in the repository" list), which is
+ *    normal for a changelog — it describes the release, not the state of one contributing branch. Its
+ *    content is exactly what the DoD and the "CHANGELOG.md and LICENSE" test below both require.
  *
  * A previous version of this file also documented a second, independent problem: `tsc -p
  * tsconfig.json --noEmit false` tripped `TS5096` because tsconfig.json sets
@@ -164,6 +175,45 @@ describe('build emits valid JS without TS5096/TS5097 (regression)', () => {
       assert.doesNotMatch(emitted, /from ["'][^"']*\.ts["']/, 'emitted JS still imports a .ts path');
       assert.match(emitted, /from ["']\.\/types\.js["']/, 'emitted JS does not import the rewritten .js path');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// safety net — a package missing its CLI entry point cannot be published
+//
+// `package.json`'s `bin.vault` points at `dist/bin/vault.js`, which does not
+// exist until `src/bin/vault.ts` lands (see the module comment above). That
+// makes the *installed* package non-functional today — but `npm publish`
+// cannot succeed today either: it runs `prepublishOnly` (`npm run build &&
+// npm test`) first, and the build's last step chmods the compiled bin entry
+// with no fallback that would let a missing file pass silently. So nothing
+// broken can reach the registry through the normal `npm publish` path while
+// this gap exists. This test is the proof, and the tripwire: if it starts
+// passing for the wrong reason (a swallowed chmod failure rather than the
+// CLI source actually landing), that is a real regression.
+// ---------------------------------------------------------------------------
+
+describe('a package with no working bin cannot be published (t6 merge-gap safety net)', () => {
+  test('npm run build fails on the missing dist/bin/vault.js, so prepublishOnly does too', async () => {
+    const pkg = await readPackageJson();
+    assert.doesNotMatch(
+      pkg.scripts.build,
+      /chmod[^&]*(\|\|\s*true|;\s*true|2>\s*\/dev\/null)/,
+      'the build script silences a failing chmod — it could then succeed and publish a package with no executable bin',
+    );
+
+    await assert.rejects(
+      execFileAsync('npm', ['run', 'build'], { cwd: REPO_ROOT }),
+      (error) => {
+        assert.match(String(error.stderr ?? ''), /chmod.*dist\/bin\/vault\.js/);
+        return true;
+      },
+      'npm run build succeeded — either src/bin/vault.ts has landed (delete this test; t7-s1/s2/s3/f1 above should now pass) or the build stopped failing loudly on a missing bin entry',
+    );
+    assert.ok(
+      !existsSync(path.join(REPO_ROOT, 'src', 'bin', 'vault.ts')),
+      'npm run build failed but src/bin/vault.ts exists — investigate why the build did not produce dist/bin/vault.js from it',
+    );
   });
 });
 
