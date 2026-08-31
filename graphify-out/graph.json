@@ -1402,7 +1402,7 @@
       "file_type": "code",
       "norm_label": "packdryrun()",
       "source_file": "test/package.test.ts",
-      "source_location": "L91"
+      "source_location": "L93"
     },
     {
       "id": "test_package_test_readpackagejson",
@@ -1414,7 +1414,7 @@
       "file_type": "code",
       "norm_label": "readpackagejson()",
       "source_file": "test/package.test.ts",
-      "source_location": "L77"
+      "source_location": "L79"
     },
     {
       "id": "test_package_test_withtmpdir",
@@ -1426,7 +1426,7 @@
       "file_type": "code",
       "norm_label": "withtmpdir()",
       "source_file": "test/package.test.ts",
-      "source_location": "L81"
+      "source_location": "L83"
     },
     {
       "id": "src_paths_resolvevaultpath",
@@ -2175,7 +2175,7 @@
       "file_type": "code",
       "norm_label": "changelog_path",
       "source_file": "test/package.test.ts",
-      "source_location": "L70"
+      "source_location": "L72"
     },
     {
       "id": "test_package_test_execfileasync",
@@ -2186,7 +2186,7 @@
       "file_type": "code",
       "norm_label": "execfileasync",
       "source_file": "test/package.test.ts",
-      "source_location": "L66"
+      "source_location": "L68"
     },
     {
       "id": "test_package_test_package_json_path",
@@ -2197,7 +2197,7 @@
       "file_type": "code",
       "norm_label": "package_json_path",
       "source_file": "test/package.test.ts",
-      "source_location": "L68"
+      "source_location": "L70"
     },
     {
       "id": "test_package_test_readme_path",
@@ -2208,7 +2208,7 @@
       "file_type": "code",
       "norm_label": "readme_path",
       "source_file": "test/package.test.ts",
-      "source_location": "L69"
+      "source_location": "L71"
     },
     {
       "id": "test_package_test_repo_root",
@@ -2219,7 +2219,7 @@
       "file_type": "code",
       "norm_label": "repo_root",
       "source_file": "test/package.test.ts",
-      "source_location": "L67"
+      "source_location": "L69"
     },
     {
       "id": "readme",
@@ -3094,7 +3094,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "test/package.test.ts",
-      "source_location": "L92",
+      "source_location": "L94",
       "weight": 1.0
     },
     {
@@ -3610,7 +3610,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/package.test.ts",
-      "source_location": "L64",
+      "source_location": "L66",
       "weight": 1.0
     },
     {
@@ -3982,7 +3982,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "test/package.test.ts",
-      "source_location": "L64",
+      "source_location": "L66",
       "weight": 1.0
     },
     {
@@ -5450,7 +5450,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L66",
+      "source_location": "L68",
       "weight": 1.0
     },
     {
@@ -5461,7 +5461,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L67",
+      "source_location": "L69",
       "weight": 1.0
     },
     {
@@ -5472,7 +5472,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L68",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -5483,7 +5483,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L69",
+      "source_location": "L71",
       "weight": 1.0
     },
     {
@@ -5494,7 +5494,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L70",
+      "source_location": "L72",
       "weight": 1.0
     },
     {
@@ -5505,7 +5505,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L77",
+      "source_location": "L79",
       "weight": 1.0
     },
     {
@@ -5516,7 +5516,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L81",
+      "source_location": "L83",
       "weight": 1.0
     },
     {
@@ -5527,7 +5527,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "test/package.test.ts",
-      "source_location": "L91",
+      "source_location": "L93",
       "weight": 1.0
     },
     {
@@ -6219,5 +6219,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "8959df780412dbff201bc37dc0b5ae1201dcd9ad"
+  "built_at_commit": "4d44d9102b51264edcc671e13359d5db84e4869e"
 }
