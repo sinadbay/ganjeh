@@ -45,10 +45,12 @@
  * and inspecting the emitted JS. The "build emits valid JS" test below is the regression test for
  * this: it fails again if the flag or the devDependency floor regresses.
  *
- * The five scenarios below that depend on dist/bin/vault.js are still written exactly as the brief
- * describes them and are still expected to fail, but now only for the missing-source reason above,
- * not because of a defect in this node's own files. They are left in place, unskipped and
- * unweakened, so the gap stays visible in `npm test` rather than being hidden.
+ * The six scenarios below that depend on dist/bin/vault.js (the five listed above, plus a `vault
+ * --help` check for the DoD's "and vault --help lists add, get and list" clause, which has no
+ * scenario ID of its own) are still written exactly as the brief describes them and are still
+ * expected to fail, but now only for the missing-source reason above, not because of a defect in
+ * this node's own files. They are left in place, unskipped and unweakened, so the gap stays visible
+ * in `npm test` rather than being hidden.
  */
 
 import { test, describe, before } from 'node:test';
@@ -343,6 +345,25 @@ describe('installed binary (t7-s2, t7-s3, t7-f1)', () => {
 
       assert.equal(stdout, '0.1.0\n');
       assert.equal(code, 0);
+    });
+  });
+
+  // DoD bullet 2 also requires `vault --help` to list all three commands —
+  // distinct from the `--version` check above, and not otherwise named as
+  // its own scenario ID, but it is still a checkbox this PR claims.
+  test('vault --help lists add, get and list', async () => {
+    await withTmpDir(async (tmp) => {
+      const packOut = await execFileAsync('npm', ['pack', '--pack-destination', tmp], { cwd: REPO_ROOT });
+      const tarballName = packOut.stdout.trim().split('\n').pop();
+      const prefix = path.join(tmp, 'prefix');
+      await fs.mkdir(prefix, { recursive: true });
+      await execFileAsync('npm', ['install', '-g', '--prefix', prefix, path.join(tmp, tarballName)]);
+
+      const binPath = path.join(prefix, 'bin', 'vault');
+      const { stdout } = await execFileAsync(binPath, ['--help']);
+      for (const command of ['add', 'get', 'list']) {
+        assert.ok(stdout.includes(command), `vault --help does not mention "${command}"`);
+      }
     });
   });
 
