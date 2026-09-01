@@ -1,16 +1,16 @@
-# Graph Report - a-command-line-password-vault-va-3d05edb6  (2026-08-27)
+# Graph Report - t7-release-mtiqvrwh  (2026-09-01)
 
 ## Corpus Check
-- 21 files · ~22,905 words
+- 24 files · ~27,390 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 361 nodes · 815 edges · 12 communities (10 shown, 2 thin omitted)
+- 420 nodes · 740 edges · 14 communities
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `2bbe6cf7`
+- Built from commit: `bb825d10`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -27,92 +27,109 @@
 - [[_COMMUNITY_Community 9|Community 9]]
 - [[_COMMUNITY_Community 10|Community 10]]
 - [[_COMMUNITY_Community 11|Community 11]]
+- [[_COMMUNITY_Community 12|Community 12]]
+- [[_COMMUNITY_Community 13|Community 13]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `VaultError` - 33 edges
-2. `src/vault.ts` - 28 edges
-3. `decodeVault()` - 22 edges
-4. `run()` - 18 edges
-5. `VaultCorruptError` - 16 edges
-6. `compilerOptions` - 15 edges
-7. `compilerOptions` - 15 edges
-8. `addEntry()` - 12 edges
-9. `open()` - 12 edges
-10. `VaultNotFoundError` - 12 edges
+1. `VaultError` - 25 edges
+2. `VaultCorruptError` - 16 edges
+3. `compilerOptions` - 15 edges
+4. `decodeVault()` - 15 edges
+5. `compilerOptions` - 15 edges
+6. `run()` - 12 edges
+7. `open()` - 12 edges
+8. `save()` - 11 edges
+9. `VaultNotFoundError` - 10 edges
+10. `FsDeps` - 10 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `runWith()` --calls--> `run()`  [EXTRACTED]
   test/commands.test.ts → src/cli.ts
-- `realPrompt()` --calls--> `readHidden()`  [EXTRACTED]
-  src/cli.ts → src/prompt.ts
-- `realPrompt()` --calls--> `readNewPassphrase()`  [EXTRACTED]
-  src/cli.ts → src/prompt.ts
-- `realPrompt()` --calls--> `readSecret()`  [EXTRACTED]
-  src/cli.ts → src/prompt.ts
-- `CommandDeps` --references--> `VaultStore`  [EXTRACTED]
+- `buildRunDeps()` --calls--> `createStore()`  [EXTRACTED]
   src/cli.ts → src/store.ts
+- `run()` --calls--> `runAdd()`  [EXTRACTED]
+  src/cli.ts → src/commands/add.ts
+- `run()` --calls--> `runGet()`  [EXTRACTED]
+  src/cli.ts → src/commands/get.ts
+- `run()` --calls--> `runList()`  [EXTRACTED]
+  src/cli.ts → src/commands/list.ts
 
-## Communities (12 total, 2 thin omitted)
+## Communities (14 total, 0 thin omitted)
 
 ### Community 0 - "Community 0"
 Cohesion: 0.10
-Nodes (44): AddOptions, runAdd(), runGet(), runList(), CommandDeps, AddOptions, runAdd(), runGet() (+36 more)
+Nodes (42): AddOptions, runAdd(), runGet(), runList(), CommandDeps, AddEntryOptions, describeUntrusted(), EntryExistsError (+34 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.08
-Nodes (46): Cipher, CIPHER_ALGORITHM, decodeBase64(), deriveKey(), describeUntrusted(), EncryptedEnvelope, ENVELOPE_VERSION, isPlainRecord() (+38 more)
+Nodes (45): Cipher, CIPHER_ALGORITHM, decodeBase64(), deriveKey(), describeUntrusted(), EncryptedEnvelope, ENVELOPE_VERSION, isPlainRecord() (+37 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.06
-Nodes (33): node:fs/promises, CommandCipher, RunDeps, exists(), load(), save(), defaultDeps, EncryptedEnvelope (+25 more)
+Nodes (31): createStore(), exists(), load(), save(), defaultDeps, EncryptedEnvelope, FileHandleLike, FsDeps (+23 more)
 
 ### Community 3 - "Community 3"
-Cohesion: 0.06
-Nodes (35): compilerOptions, allowImportingTsExtensions, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, lib, module, moduleResolution, noEmit (+27 more)
+Cohesion: 0.04
+Nodes (47): bin, vault, description, devDependencies, @types/node, typescript, engines, node (+39 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.06
-Nodes (30): description, devDependencies, @types/node, typescript, engines, node, name, private (+22 more)
+Nodes (35): ES2023, node, src/**/*.ts, compilerOptions, allowImportingTsExtensions, exactOptionalPropertyTypes, forceConsistentCasingInFileNames, lib (+27 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.13
-Nodes (28): AbortedError, assertPassphraseStrength(), getReaderState(), InputTooLongError, MAX_HIDDEN_INPUT_LENGTH, nextChar(), PassphraseMismatchError, RawModeCapable (+20 more)
+Cohesion: 0.17
+Nodes (11): Commands, Encryption, Exit codes, ganjeh, Install, License, `vault add <name> [--force] [--stdin] [--file <path>]`, `vault get <name> [--file <path>]` (+3 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.11
-Nodes (30): bin/vault.ts, AddParsed, bridgedCipher(), buildRunDeps(), CliUsageError, CommandParsed, CommandPrompt, FlagSpec (+22 more)
+Cohesion: 0.10
+Nodes (23): args, binJs, CHANGELOG_PATH, env, execFileAsync, npmrcFiles, outDir, outDirFlagIndex (+15 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.12
-Nodes (16): dir, dirAsFilePath, envelope, fileChmods, filePath, { fs }, { fs, log }, linkPath (+8 more)
+Cohesion: 0.10
+Nodes (23): realPrompt(), AbortedError, assertPassphraseStrength(), getReaderState(), InputTooLongError, nextChar(), PassphraseMismatchError, RawModeCapable (+15 more)
+
+### Community 8 - "Community 8"
+Cohesion: 0.40
+Nodes (4): 0.1.0, Added, Changelog, Compatibility
 
 ### Community 9 - "Community 9"
-Cohesion: 0.29
-Nodes (3): BIN_PATH, CliResult, exec
+Cohesion: 0.06
+Nodes (38): AddParsed, bridgedCipher(), buildRunDeps(), CliUsageError, CommandCipher, CommandParsed, CommandPrompt, FlagSpec (+30 more)
 
 ### Community 10 - "Community 10"
+Cohesion: 0.11
+Nodes (18): code:block1 (npm i -g ganjeh), code:block2 ($ vault add npm-token --stdin), code:block3 ($ printf 'correct-horse-battery\nsuper-secret-value\n' | vau), code:block4 ($ vault get npm-token), code:block5 ($ vault list), code:block6 ($ vault list), code:block7 ($ VAULT_FILE=/tmp/scratch-vault.json vault add test-entry --), Commands (+10 more)
+
+### Community 11 - "Community 11"
 Cohesion: 0.15
 Nodes (9): BIN_PATH, child, CliResult, env, envelope, exec, lockedParent, secret (+1 more)
 
+### Community 12 - "Community 12"
+Cohesion: 0.40
+Nodes (4): 0.1.0, Added, Changelog, Compatibility
+
+### Community 13 - "Community 13"
+Cohesion: 0.40
+Nodes (4): Anything worth arguing about, How it works, Summary, What I tested
+
 ## Knowledge Gaps
-- **120 isolated node(s):** `name`, `version`, `private`, `description`, `type` (+115 more)
+- **174 isolated node(s):** `name`, `version`, `description`, `license`, `type` (+169 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `VaultError` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 6`, `Community 7`?**
-  _High betweenness centrality (0.171) - this node is a cross-community bridge._
-- **Why does `VaultCorruptError` connect `Community 1` to `Community 0`, `Community 2`, `Community 5`, `Community 7`?**
-  _High betweenness centrality (0.046) - this node is a cross-community bridge._
-- **What connects `name`, `version`, `private` to the rest of the system?**
-  _120 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `VaultError` connect `Community 0` to `Community 9`, `Community 2`, `Community 1`, `Community 7`?**
+  _High betweenness centrality (0.119) - this node is a cross-community bridge._
+- **Why does `VaultCorruptError` connect `Community 0` to `Community 1`, `Community 2`?**
+  _High betweenness centrality (0.040) - this node is a cross-community bridge._
+- **What connects `name`, `version`, `description` to the rest of the system?**
+  _174 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.09717514124293786 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.09643483343074226 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
-  _Cohesion score 0.08127721335268505 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08392156862745098 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
-  _Cohesion score 0.06170598911070781 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06386066763425254 - nodes in this community are weakly interconnected._
 - **Should `Community 3` be split into smaller, more focused modules?**
-  _Cohesion score 0.057057057057057055 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04251700680272109 - nodes in this community are weakly interconnected._

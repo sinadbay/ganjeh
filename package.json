@@ -19,7 +19,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir dist && chmod +x dist/bin/vault.js",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test",
     "prepublishOnly": "npm run build && npm test"

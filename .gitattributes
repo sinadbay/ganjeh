@@ -1,2 +1,4 @@
-graphify-out/graph.json -diff linguist-generated=true\ngraphify-out/GRAPH_REPORT.md -diff linguist-generated=true\ngraphify-out/graph.html binary linguist-generated=true
+graphify-out/graph.json -diff linguist-generated=true
+graphify-out/GRAPH_REPORT.md -diff linguist-generated=true
+graphify-out/graph.html binary linguist-generated=true
 graphify-out/graph.json merge=graphify
